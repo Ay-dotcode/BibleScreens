@@ -336,12 +336,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _offlineDownloading = false;
-        _offlineProgress = 0;
-        _offlineLabel = '';
-      });
+      if (mounted) {
+        setState(() {
+          _offlineDownloading = false;
+          _offlineProgress = 0;
+          _offlineLabel = '';
+        });
+      }
     }
   }
 }
