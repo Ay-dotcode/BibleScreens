@@ -1,0 +1,225 @@
+import 'package:flutter/material.dart';
+
+import '../models/app_settings.dart';
+import '../services/bible_service.dart';
+
+class SettingsScreen extends StatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final _settings = AppSettings.instance;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _settings,
+      builder: (context, _) => Scaffold(
+        backgroundColor: const Color(0xFF0F0F1A),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF0F0F1A),
+          title: const Text(
+            'Settings',
+            style: TextStyle(letterSpacing: 2, fontWeight: FontWeight.w300),
+          ),
+          iconTheme: const IconThemeData(color: Colors.white60),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+          children: [
+            _section('Bible'),
+            _translationPicker(),
+            const SizedBox(height: 32),
+            _section('Display'),
+            _slider('Verse font size', _settings.verseFontSize, 24, 100, (v) {
+              _settings.update((s) => s.verseFontSize = v);
+            }),
+            _slider('Reference font size', _settings.refFontSize, 14, 60, (v) {
+              _settings.update((s) => s.refFontSize = v);
+            }),
+            _fontPicker(),
+            _toggle('Show translation badge', _settings.showTranslation, (v) {
+              _settings.update((s) => s.showTranslation = v);
+            }),
+            _toggle(
+                'Show book/chapter/verse reference', _settings.showReference,
+                (v) {
+              _settings.update((s) => s.showReference = v);
+            }),
+            const SizedBox(height: 32),
+            _section('Transcript Panel'),
+            _toggle('Show live transcript', _settings.showTranscript, (v) {
+              _settings.update((s) => s.showTranscript = v);
+            }),
+            _slider('Transcript opacity', _settings.transcriptOpacity, 0.1, 1.0,
+                (v) {
+              _settings.update((s) => s.transcriptOpacity = v);
+            }),
+            const SizedBox(height: 32),
+            _section('About'),
+            _infoTile(
+                'Speech recognition', 'Device built-in (free, no API key)'),
+            _infoTile('Bible text', 'bible-api.com (free, no API key)'),
+            _infoTile(
+                'Offline caching', 'Verses cached locally after first load'),
+            _infoTile('Supported languages', 'English (US) — speak naturally'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _section(String title) => Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Text(
+          title.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            letterSpacing: 3,
+            color: Colors.white.withValues(alpha: 0.35),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      );
+
+  Widget _translationPicker() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _settings.translation,
+          dropdownColor: const Color(0xFF1A1A2E),
+          style: const TextStyle(color: Colors.white70, fontSize: 15),
+          isExpanded: true,
+          items: BibleService.availableTranslations
+              .map((t) => DropdownMenuItem(
+                    value: t['id'],
+                    child: Text('${t['name']} (${t['id']!.toUpperCase()})'),
+                  ))
+              .toList(),
+          onChanged: (v) {
+            if (v != null) _settings.update((s) => s.translation = v);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _fontPicker() {
+    const fonts = [
+      'Georgia',
+      'Palatino',
+      'Times New Roman',
+      'Garamond',
+      'System'
+    ];
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: fonts.contains(_settings.fontFamily)
+              ? _settings.fontFamily
+              : fonts.first,
+          dropdownColor: const Color(0xFF1A1A2E),
+          style: const TextStyle(color: Colors.white70, fontSize: 15),
+          isExpanded: true,
+          hint: const Text('Font family'),
+          items: fonts
+              .map((f) => DropdownMenuItem(
+                    value: f,
+                    child: Text(f,
+                        style: TextStyle(fontFamily: f == 'System' ? null : f)),
+                  ))
+              .toList(),
+          onChanged: (v) {
+            if (v != null) {
+              _settings.update((s) => s.fontFamily = v == 'System' ? '' : v);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _slider(String label, double value, double min, double max,
+      ValueChanged<double> onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label,
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6), fontSize: 14)),
+            Text(value.round().toString(),
+                style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.4), fontSize: 13)),
+          ],
+        ),
+        Slider(
+          value: value.clamp(min, max),
+          min: min,
+          max: max,
+          activeColor: Colors.white.withValues(alpha: 0.6),
+          inactiveColor: Colors.white.withValues(alpha: 0.1),
+          onChanged: onChanged,
+        ),
+        const SizedBox(height: 4),
+      ],
+    );
+  }
+
+  Widget _toggle(String label, bool value, ValueChanged<bool> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label,
+              style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6), fontSize: 14)),
+          Switch(
+            value: value,
+            activeThumbColor: Colors.white,
+            activeTrackColor: Colors.white.withValues(alpha: 0.3),
+            inactiveTrackColor: Colors.white.withValues(alpha: 0.1),
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoTile(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label,
+              style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.5), fontSize: 13)),
+          Text(value,
+              style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.3), fontSize: 13)),
+        ],
+      ),
+    );
+  }
+}

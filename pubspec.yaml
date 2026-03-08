@@ -1,0 +1,35 @@
+name: church_display
+description: Human-free church worship display — auto-detects Bible verses from speech.
+version: 1.0.0+1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Speech recognition — free, uses device built-in STT (no API key)
+  speech_to_text: ^6.6.2
+
+  # HTTP for Bible API (bible-api.com — free, no key required)
+  http: ^1.2.0
+
+  # Local cache so verses load offline after first fetch
+  path_provider: ^2.1.2
+  path: ^1.9.0
+
+  # Animations
+  animated_text_kit: ^4.2.2
+
+  # Icons
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
