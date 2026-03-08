@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+// ignore: unused_import
+import '../utils/color_compat.dart';
+
 class AppSettings extends ChangeNotifier {
   // Display
   double verseFontSize = 52;

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
 import '../services/bible_service.dart';
+// ignore: unused_import
+import '../utils/color_compat.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});

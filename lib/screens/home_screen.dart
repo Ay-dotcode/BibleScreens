@@ -7,6 +7,8 @@ import '../models/bible_verse.dart';
 import '../services/bible_service.dart';
 import '../services/speech_service.dart';
 import '../services/verse_detector.dart';
+// ignore: unused_import
+import '../utils/color_compat.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
