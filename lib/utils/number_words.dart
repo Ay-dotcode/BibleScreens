@@ -53,16 +53,29 @@ class NumberWords {
   /// Example: "john three sixteen" → "john 3 16"
   /// Example: "first corinthians thirteen four" → "1 corinthians 13 4"
   static String convert(String input) {
+    final normalized = input
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9:\s\-]'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
     // Split on whitespace and hyphens (handles "twenty-two")
-    final tokens = input.toLowerCase().split(RegExp(r'[\s\-]+'));
+    final tokens = normalized.split(RegExp(r'[\s\-]+'));
     final output = <String>[];
     int i = 0;
 
     while (i < tokens.length) {
       final word = tokens[i];
 
+      if (word.isEmpty || word == 'and') {
+        i++;
+        continue;
+      }
+
       // Tens word followed by ones word → compound number ("twenty two" → 22)
-      if (_tens.containsKey(word) && i + 1 < tokens.length && _ones.containsKey(tokens[i + 1])) {
+      if (_tens.containsKey(word) &&
+          i + 1 < tokens.length &&
+          _ones.containsKey(tokens[i + 1])) {
         output.add((_tens[word]! + _ones[tokens[i + 1]]!).toString());
         i += 2;
         continue;

@@ -15,6 +15,9 @@ class SpeechService {
 
   bool _wantListening = false; // user intent
   bool _available = false;
+  bool _startingListen = false;
+  Timer? _restartTimer;
+  DateTime _lastListenAttempt = DateTime.fromMillisecondsSinceEpoch(0);
 
   final _transcriptController = StreamController<String>.broadcast();
   final _stateController = StreamController<ListeningState>.broadcast();
@@ -71,6 +74,8 @@ class SpeechService {
 
   Future<void> stopListening() async {
     _wantListening = false;
+    _restartTimer?.cancel();
+    _restartTimer = null;
     if (_available) {
       await _stt.stop();
     }
@@ -78,7 +83,16 @@ class SpeechService {
   }
 
   Future<void> _listen() async {
-    if (!_wantListening || _stt.isListening) return;
+    if (!_wantListening || _stt.isListening || _startingListen) return;
+
+    final now = DateTime.now();
+    if (now.difference(_lastListenAttempt) <
+        const Duration(milliseconds: 400)) {
+      _scheduleRestart(const Duration(milliseconds: 450));
+      return;
+    }
+    _lastListenAttempt = now;
+    _startingListen = true;
 
     _setState(ListeningState.listening);
 
@@ -105,6 +119,15 @@ class SpeechService {
       _setState(ListeningState.error);
       _errorController
           .add('Could not start listening: ${error.message ?? error.code}');
+    } catch (error) {
+      final message = error.toString().toLowerCase();
+      if (message.contains('already started')) {
+        _scheduleRestart(const Duration(milliseconds: 700));
+      } else {
+        _errorController.add('Could not start listening: $error');
+      }
+    } finally {
+      _startingListen = false;
     }
   }
 
@@ -119,7 +142,7 @@ class SpeechService {
   void _onStatus(String status) {
     // Restart automatically when the engine pauses/finishes
     if ((status == 'done' || status == 'notListening') && _wantListening) {
-      Future.delayed(const Duration(milliseconds: 300), _listen);
+      _scheduleRestart(const Duration(milliseconds: 500));
     }
     if (status == 'listening') {
       _setState(ListeningState.listening);
@@ -128,12 +151,18 @@ class SpeechService {
 
   void _onError(SpeechRecognitionError error) {
     // Transient errors (e.g. "no speech") → just restart
-    final transient = {'no-speech', 'audio', 'network'};
+    final transient = {'no-speech', 'audio', 'network', 'aborted'};
     if (transient.contains(error.errorMsg) && _wantListening) {
-      Future.delayed(const Duration(seconds: 1), _listen);
+      _scheduleRestart(const Duration(seconds: 1));
     } else {
       _errorController.add('Recognition error: ${error.errorMsg}');
     }
+  }
+
+  void _scheduleRestart(Duration delay) {
+    if (!_wantListening || !_available) return;
+    _restartTimer?.cancel();
+    _restartTimer = Timer(delay, _listen);
   }
 
   void _setState(ListeningState s) {
@@ -142,6 +171,7 @@ class SpeechService {
   }
 
   void dispose() {
+    _restartTimer?.cancel();
     _stt.stop();
     _transcriptController.close();
     _stateController.close();

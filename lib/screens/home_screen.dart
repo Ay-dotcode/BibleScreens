@@ -164,33 +164,48 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _settings,
-      builder: (context, _) => Scaffold(
-        backgroundColor: _settings.bgColor,
-        body: Stack(
-          children: [
-            // ── Main verse display ──────────────────────────────────────────
-            _buildVerseDisplay(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screenWidth = constraints.maxWidth;
+        final horizontalPadding = screenWidth >= 1600
+            ? 180.0
+            : screenWidth >= 1200
+                ? 120.0
+                : screenWidth >= 900
+                    ? 72.0
+                    : 24.0;
 
-            // ── Top bar ─────────────────────────────────────────────────────
-            _buildTopBar(),
+        return AnimatedBuilder(
+          animation: _settings,
+          builder: (context, _) => Scaffold(
+            backgroundColor: _settings.bgColor,
+            body: Stack(
+              children: [
+                // ── Main verse display ──────────────────────────────────────────
+                _buildVerseDisplay(horizontalPadding),
 
-            // ── Bottom transcript panel ──────────────────────────────────────
-            if (_settings.showTranscript) _buildTranscriptPanel(),
+                // ── Top bar ─────────────────────────────────────────────────────
+                _buildTopBar(horizontalPadding),
 
-            // ── Error snackbar ───────────────────────────────────────────────
-            if (_errorMsg != null) _buildErrorBanner(),
-          ],
-        ),
-      ),
+                // ── Bottom transcript panel ──────────────────────────────────────
+                if (_settings.showTranscript)
+                  _buildTranscriptPanel(horizontalPadding),
+
+                // ── Error snackbar ───────────────────────────────────────────────
+                if (_errorMsg != null) _buildErrorBanner(horizontalPadding),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildVerseDisplay() {
+  Widget _buildVerseDisplay(double horizontalPadding) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 80, vertical: 120),
+        padding:
+            EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 120),
         child: _isLoading
             ? _buildLoader()
             : _currentVerse == null
@@ -364,7 +379,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildTopBar() {
+  Widget _buildTopBar(double horizontalPadding) {
     final isListening = _speech.state == ListeningState.listening;
 
     return Positioned(
@@ -372,7 +387,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       left: 0,
       right: 0,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        padding:
+            EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 12),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
@@ -515,7 +531,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildTranscriptPanel() {
+  Widget _buildTranscriptPanel(double horizontalPadding) {
     return Positioned(
       bottom: 0,
       left: 0,
@@ -523,7 +539,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       child: Opacity(
         opacity: _settings.transcriptOpacity,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+          padding:
+              EdgeInsets.fromLTRB(horizontalPadding, 20, horizontalPadding, 20),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.bottomCenter,
@@ -572,11 +589,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildErrorBanner() {
+  Widget _buildErrorBanner(double horizontalPadding) {
     return Positioned(
       bottom: _settings.showTranscript ? 100 : 20,
-      left: 20,
-      right: 20,
+      left: horizontalPadding,
+      right: horizontalPadding,
       child: AnimatedOpacity(
         opacity: _errorMsg != null ? 1.0 : 0.0,
         duration: const Duration(milliseconds: 300),

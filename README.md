@@ -67,6 +67,7 @@ flutter run -d linux
 ### macOS
 
 The `macos/Runner/Info.plist` file in this repo already includes the required permissions:
+
 - `NSMicrophoneUsageDescription`
 - `NSSpeechRecognitionUsageDescription`
 
@@ -107,29 +108,29 @@ sudo apt-get install -y libspeechd-dev speech-dispatcher
 
 ### Verse Detection Examples
 
-| You say | Detected |
-|---|---|
-| `John three sixteen` | John 3:16 |
-| `Romans eight twenty-eight` | Romans 8:28 |
-| `First Corinthians thirteen four` | 1 Corinthians 13:4 |
-| `Psalms 23` | Psalms 23:1 |
-| `Second Kings chapter seven verse three` | 2 Kings 7:3 |
-| `Rev 22 20` | Revelation 22:20 |
+| You say                                  | Detected           |
+| ---------------------------------------- | ------------------ |
+| `John three sixteen`                     | John 3:16          |
+| `Romans eight twenty-eight`              | Romans 8:28        |
+| `First Corinthians thirteen four`        | 1 Corinthians 13:4 |
+| `Psalms 23`                              | Psalms 23:1        |
+| `Second Kings chapter seven verse three` | 2 Kings 7:3        |
+| `Rev 22 20`                              | Revelation 22:20   |
 
 ---
 
 ## ⚙️ Settings (accessible from the gear icon)
 
-| Setting | Description |
-|---|---|
-| **Translation** | KJV, WEB, ASV, BBE, Darby, DRA, YLT |
-| **Verse font size** | 24–100px |
-| **Reference font size** | 14–60px |
-| **Font family** | Georgia, Palatino, Times New Roman, etc. |
-| **Show translation badge** | Toggle KJV/WEB/etc. badge |
-| **Show reference** | Toggle book/chapter/verse label |
-| **Live transcript** | Show/hide bottom transcript panel |
-| **Transcript opacity** | Adjust panel transparency |
+| Setting                    | Description                              |
+| -------------------------- | ---------------------------------------- |
+| **Translation**            | KJV, WEB, ASV, BBE, Darby, DRA, YLT      |
+| **Verse font size**        | 24–100px                                 |
+| **Reference font size**    | 14–60px                                  |
+| **Font family**            | Georgia, Palatino, Times New Roman, etc. |
+| **Show translation badge** | Toggle KJV/WEB/etc. badge                |
+| **Show reference**         | Toggle book/chapter/verse label          |
+| **Live transcript**        | Show/hide bottom transcript panel        |
+| **Transcript opacity**     | Adjust panel transparency                |
 
 ---
 
@@ -137,13 +138,13 @@ sudo apt-get install -y libspeechd-dev speech-dispatcher
 
 All free, no API keys required:
 
-| Package | Purpose |
-|---|---|
-| `speech_to_text` | Microphone + speech-to-text (device native) |
-| `http` | Fetch verse text from bible-api.com |
-| `path_provider` | Locate cache/settings directory |
-| `path` | File path utilities |
-| `animated_text_kit` | Text animations |
+| Package             | Purpose                                     |
+| ------------------- | ------------------------------------------- |
+| `speech_to_text`    | Microphone + speech-to-text (device native) |
+| `http`              | Fetch verse text from bible-api.com         |
+| `path_provider`     | Locate cache/settings directory             |
+| `path`              | File path utilities                         |
+| `animated_text_kit` | Text animations                             |
 
 ---
 
@@ -169,4 +170,32 @@ All free, no API keys required:
 → On macOS, ensure the network entitlement is set in `.entitlements` files.
 
 **Wrong verse displayed**  
-→ The detector takes the first valid reference it finds. If the transcript accumulated old words, press ✕ to clear and the mic to restart.
+→ The detector uses the most recent valid reference it hears. If stale transcript text remains, press ✕ to clear and restart listening.
+
+---
+
+## 🧱 Project Structure
+
+```text
+lib/
+  core/
+    theme/
+      app_theme.dart
+  models/
+    app_settings.dart
+    bible_verse.dart
+  screens/
+    home_screen.dart
+    settings_screen.dart
+  services/
+    speech_service.dart
+    verse_detector.dart
+    bible_service.dart
+  utils/
+    bible_books.dart
+    number_words.dart
+  app.dart
+  main.dart
+```
+
+This keeps UI, domain models, and integrations separate so you can add future features (song lyrics, overlays, scheduling, remote control) without rewriting existing modules.

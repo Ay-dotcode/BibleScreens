@@ -1,6 +1,6 @@
 import '../models/bible_verse.dart';
-import '../utils/number_words.dart';
 import '../utils/bible_books.dart';
+import '../utils/number_words.dart';
 
 /// Scans transcribed speech for Bible verse references.
 ///
@@ -28,49 +28,73 @@ class VerseDetector {
     // 1. Convert number words to digits ("three" → "3")
     final normalized = NumberWords.convert(rawText.toLowerCase());
 
-    // 2. Scan for every known book label (longest first to avoid prefix clashes)
+    // 2. Collect all possible book mentions and prefer the most recently spoken.
+    final candidates = <_BookCandidate>[];
     for (final label in BibleBooks.sortedKeys) {
-      final idx = normalized.indexOf(label);
-      if (idx == -1) continue;
+      final canonicalBook = BibleBooks.resolve(label);
+      if (canonicalBook == null) continue;
 
-      // Make sure the label is a whole word / phrase (not inside another word)
-      final before = idx > 0 ? normalized[idx - 1] : ' ';
-      final after = idx + label.length < normalized.length
-          ? normalized[idx + label.length]
-          : ' ';
-      if (RegExp(r'[a-z]').hasMatch(before)) continue;
-      if (RegExp(r'[a-z]').hasMatch(after)) continue;
+      final escapedLabel = RegExp.escape(label);
+      final pattern = RegExp('(?<![a-z0-9])$escapedLabel(?![a-z0-9])');
+      final matches = pattern.allMatches(normalized);
+      for (final match in matches) {
+        candidates.add(
+          _BookCandidate(
+            label: label,
+            canonicalBook: canonicalBook,
+            index: match.start,
+          ),
+        );
+      }
+    }
 
-      final canonicalBook = BibleBooks.resolve(label)!;
+    candidates.sort((a, b) => b.index.compareTo(a.index));
 
-      // 3. Take the text after the book name, strip noise words
-      final tail = normalized.substring(idx + label.length);
+    for (final candidate in candidates) {
+      final tail = normalized.substring(candidate.index + candidate.label.length);
       final cleaned = tail
           .replaceAll(_noise, ' ')
-          .replaceAll(RegExp(r'[^0-9\s]'), ' ') // keep only digits + spaces
+          .replaceAll(RegExp(r'[^0-9\s]'), ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
           .trim();
 
-      // 4. Extract up to 2 numbers
       final numbers = RegExp(r'\d+').allMatches(cleaned).toList();
+      if (numbers.isEmpty) continue;
 
       if (numbers.length >= 2) {
         final chapter = int.tryParse(numbers[0].group(0)!);
         final verse = int.tryParse(numbers[1].group(0)!);
         if (chapter != null && verse != null && chapter > 0 && verse > 0) {
-          return VerseReference(book: canonicalBook, chapter: chapter, verse: verse);
+          return VerseReference(
+            book: candidate.canonicalBook,
+            chapter: chapter,
+            verse: verse,
+          );
         }
       }
 
-      // Only one number found — treat as chapter 1, verse N
-      // (e.g. pastor says "Psalms 23" meaning Psalm 23:1)
-      if (numbers.length == 1) {
-        final chapter = int.tryParse(numbers[0].group(0)!);
-        if (chapter != null && chapter > 0) {
-          return VerseReference(book: canonicalBook, chapter: chapter, verse: 1);
-        }
+      final chapter = int.tryParse(numbers[0].group(0)!);
+      if (chapter != null && chapter > 0) {
+        return VerseReference(
+          book: candidate.canonicalBook,
+          chapter: chapter,
+          verse: 1,
+        );
       }
     }
 
     return null;
   }
+}
+
+class _BookCandidate {
+  final String label;
+  final String canonicalBook;
+  final int index;
+
+  const _BookCandidate({
+    required this.label,
+    required this.canonicalBook,
+    required this.index,
+  });
 }
