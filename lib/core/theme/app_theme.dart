@@ -16,9 +16,6 @@ class AppTheme {
         secondary: appSecondary,
         surface: appSurface,
       ),
-      sliderTheme: const SliderThemeData(
-        showValueIndicator: ShowValueIndicator.onDrag,
-      ),
     );
   }
 }
