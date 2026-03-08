@@ -17,6 +17,7 @@ Just talk — if you mention a Bible verse, it appears on screen automatically.
   - `Psalms 23` → Psalm 23:1
 - 📡 **Bible text** fetched from [bible-api.com](https://bible-api.com) — free, no account needed
 - 💾 **Local cache** — verses load instantly after first fetch, works offline for cached verses
+- 📥 **Full offline download** — download a whole translation once in Settings
 - 🎨 **Worship-style dark display** with elegant typography
 - ⚙️ **Settings** — font size, Bible translation (KJV, WEB, ASV, BBE, Darby, DRA, YLT), transcript panel, and more
 
@@ -121,16 +122,17 @@ sudo apt-get install -y libspeechd-dev speech-dispatcher
 
 ## ⚙️ Settings (accessible from the gear icon)
 
-| Setting                    | Description                              |
-| -------------------------- | ---------------------------------------- |
-| **Translation**            | KJV, WEB, ASV, BBE, Darby, DRA, YLT      |
-| **Verse font size**        | 24–100px                                 |
-| **Reference font size**    | 14–60px                                  |
-| **Font family**            | Georgia, Palatino, Times New Roman, etc. |
-| **Show translation badge** | Toggle KJV/WEB/etc. badge                |
-| **Show reference**         | Toggle book/chapter/verse label          |
-| **Live transcript**        | Show/hide bottom transcript panel        |
-| **Transcript opacity**     | Adjust panel transparency                |
+| Setting                    | Description                                         |
+| -------------------------- | --------------------------------------------------- |
+| **Translation**            | KJV, WEB, ASV, BBE, Darby, DRA, YLT                 |
+| **Verse font size**        | 24–100px                                            |
+| **Reference font size**    | 14–60px                                             |
+| **Font family**            | Georgia, Palatino, Times New Roman, etc.            |
+| **Show translation badge** | Toggle KJV/WEB/etc. badge                           |
+| **Show reference**         | Toggle book/chapter/verse label                     |
+| **Live transcript**        | Show/hide bottom transcript panel                   |
+| **Transcript opacity**     | Adjust panel transparency                           |
+| **Download now**           | Downloads full selected translation for offline use |
 
 ---
 
@@ -138,13 +140,13 @@ sudo apt-get install -y libspeechd-dev speech-dispatcher
 
 All free, no API keys required:
 
-| Package             | Purpose                                     |
-| ------------------- | ------------------------------------------- |
-| `speech_to_text`    | Microphone + speech-to-text (device native) |
-| `http`              | Fetch verse text from bible-api.com         |
-| `path_provider`     | Locate cache/settings directory             |
-| `path`              | File path utilities                         |
-| `animated_text_kit` | Text animations                             |
+| Package           | Purpose                                     |
+| ----------------- | ------------------------------------------- |
+| `speech_to_text`  | Microphone + speech-to-text (device native) |
+| `http`            | Fetch verse text from bible-api.com         |
+| `path_provider`   | Locate cache/settings directory             |
+| `path`            | File path utilities                         |
+| `cupertino_icons` | Icons                                       |
 
 ---
 
@@ -153,6 +155,12 @@ All free, no API keys required:
 - **No data leaves your device** except the verse reference sent to bible-api.com (e.g. `john+3:16`).
 - Speech recognition runs entirely **on-device** using your OS's built-in engine.
 - No account, no login, no telemetry.
+
+### Internet usage
+
+- The app uses internet for Bible text download from `bible-api.com`.
+- Speech recognition uses device/OS speech engine, not an app-hosted backend.
+- After running **Download now** in Settings for your chosen translation, verse display works offline.
 
 ---
 

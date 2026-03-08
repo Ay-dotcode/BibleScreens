@@ -14,6 +14,17 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _settings = AppSettings.instance;
+  final _bible = BibleService();
+
+  bool _offlineDownloading = false;
+  double _offlineProgress = 0;
+  String _offlineLabel = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _bible.init();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,10 +72,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _settings.update((s) => s.transcriptOpacity = v);
             }),
             const SizedBox(height: 32),
+            _section('Offline Bible'),
+            _offlineDownloadTile(),
+            const SizedBox(height: 32),
             _section('About'),
             _infoTile(
                 'Speech recognition', 'Device built-in (free, no API key)'),
-            _infoTile('Bible text', 'bible-api.com (free, no API key)'),
+            _infoTile('Internet usage', 'Bible download/fetch only'),
             _infoTile(
                 'Offline caching', 'Verses cached locally after first load'),
             _infoTile('Supported languages', 'English (US) — speak naturally'),
@@ -223,5 +237,110 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Widget _offlineDownloadTile() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Download ${_settings.translation.toUpperCase()} for full offline use',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.75),
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'One-time internet download. After this, verse display works offline for this translation.',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.45),
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_offlineDownloading) ...[
+            LinearProgressIndicator(
+              value: _offlineProgress,
+              minHeight: 6,
+              color: Colors.white.withValues(alpha: 0.65),
+              backgroundColor: Colors.white.withValues(alpha: 0.15),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _offlineLabel,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.55),
+                fontSize: 12,
+              ),
+            ),
+          ] else
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: _downloadOfflineBible,
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.25)),
+                ),
+                child: const Text('Download now'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _downloadOfflineBible() async {
+    if (_offlineDownloading) return;
+
+    setState(() {
+      _offlineDownloading = true;
+      _offlineProgress = 0;
+      _offlineLabel = 'Starting…';
+    });
+
+    try {
+      await _bible.preloadEntireTranslation(
+        translation: _settings.translation,
+        onProgress: (done, total, label) {
+          if (!mounted) return;
+          final safeTotal = total <= 0 ? 1 : total;
+          setState(() {
+            _offlineProgress = done / safeTotal;
+            _offlineLabel = 'Downloading $label ($done/$total chapters)';
+          });
+        },
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              '${_settings.translation.toUpperCase()} Bible downloaded for offline use.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Offline download failed: $error'),
+        ),
+      );
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _offlineDownloading = false;
+        _offlineProgress = 0;
+        _offlineLabel = '';
+      });
+    }
   }
 }

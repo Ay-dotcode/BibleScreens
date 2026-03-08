@@ -204,15 +204,34 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   Widget _buildVerseDisplay(double horizontalPadding) {
-    return Center(
-      child: Padding(
-        padding:
-            EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 120),
-        child: _isLoading
-            ? _buildLoader()
-            : _currentVerse == null
-                ? _buildPlaceholder()
-                : _buildVerse(),
+    final verticalPadding = _settings.showTranscript ? 110.0 : 80.0;
+
+    return SafeArea(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final content = _isLoading
+              ? _buildLoader()
+              : _currentVerse == null
+                  ? _buildPlaceholder()
+                  : _buildVerse();
+
+          final minContentHeight =
+              (constraints.maxHeight - (verticalPadding * 2))
+                  .clamp(0.0, double.infinity);
+
+          return Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: horizontalPadding,
+              vertical: verticalPadding,
+            ),
+            child: SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: minContentHeight),
+                child: Center(child: content),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
