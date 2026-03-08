@@ -9,6 +9,8 @@ enum ListeningState { idle, initializing, listening, paused, error }
 
 class SpeechService {
   final SpeechToText _stt = SpeechToText();
+  static const Duration _listenWindow = Duration(minutes: 30);
+  static const Duration _pauseWindow = Duration(minutes: 30);
 
   ListeningState _state = ListeningState.idle;
   ListeningState get state => _state;
@@ -23,6 +25,8 @@ class SpeechService {
   final _stateController = StreamController<ListeningState>.broadcast();
   final _errorController = StreamController<String>.broadcast();
 
+  static const int _maxTranscriptChars = 500;
+
   /// Live partial + final transcription text.
   Stream<String> get transcriptStream => _transcriptController.stream;
 
@@ -34,6 +38,8 @@ class SpeechService {
 
   String _lastTranscript = '';
   String get lastTranscript => _lastTranscript;
+  String _stableTranscript = '';
+  String _liveTranscript = '';
 
   Future<bool> init() async {
     _setState(ListeningState.initializing);
@@ -69,6 +75,9 @@ class SpeechService {
   Future<void> startListening() async {
     if (!_available) return;
     _wantListening = true;
+    _stableTranscript = '';
+    _liveTranscript = '';
+    _lastTranscript = '';
     await _listen();
   }
 
@@ -88,7 +97,7 @@ class SpeechService {
     final now = DateTime.now();
     if (now.difference(_lastListenAttempt) <
         const Duration(milliseconds: 400)) {
-      _scheduleRestart(const Duration(milliseconds: 450));
+      _scheduleRestart(const Duration(milliseconds: 400));
       return;
     }
     _lastListenAttempt = now;
@@ -99,12 +108,13 @@ class SpeechService {
     try {
       await _stt.listen(
         onResult: _onResult,
-        listenFor: const Duration(minutes: 5),
-        pauseFor: const Duration(seconds: 4),
+        listenFor: _listenWindow,
+        pauseFor: _pauseWindow,
         localeId: 'en_US',
         listenOptions: SpeechListenOptions(
           partialResults: true,
           cancelOnError: false,
+          listenMode: ListenMode.dictation,
         ),
       );
     } on MissingPluginException {
@@ -133,16 +143,23 @@ class SpeechService {
 
   void _onResult(SpeechRecognitionResult result) {
     final text = result.recognizedWords.trim();
-    if (text.isNotEmpty) {
-      _lastTranscript = text;
-      _transcriptController.add(text);
+    if (text.isEmpty) return;
+
+    if (result.finalResult) {
+      _stableTranscript = _mergeTranscript(_stableTranscript, text);
+      _liveTranscript = '';
+      _emitTranscript(_stableTranscript);
+      return;
     }
+
+    _liveTranscript = text;
+    _emitTranscript(_mergeTranscript(_stableTranscript, _liveTranscript));
   }
 
   void _onStatus(String status) {
-    // Restart automatically when the engine pauses/finishes
+    // Keep stream effectively continuous if engine ends unexpectedly.
     if ((status == 'done' || status == 'notListening') && _wantListening) {
-      _scheduleRestart(const Duration(milliseconds: 500));
+      _scheduleRestart(const Duration(milliseconds: 120));
     }
     if (status == 'listening') {
       _setState(ListeningState.listening);
@@ -168,6 +185,43 @@ class SpeechService {
   void _setState(ListeningState s) {
     _state = s;
     _stateController.add(s);
+  }
+
+  void _emitTranscript(String text) {
+    final compact = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (compact.isEmpty) return;
+
+    final clipped = compact.length <= _maxTranscriptChars
+        ? compact
+        : compact.substring(compact.length - _maxTranscriptChars);
+
+    _lastTranscript = clipped;
+    _transcriptController.add(clipped);
+  }
+
+  String _mergeTranscript(String base, String incoming) {
+    final left = base.trim();
+    final right = incoming.trim();
+    if (left.isEmpty) return right;
+    if (right.isEmpty) return left;
+
+    final leftWords = left.split(RegExp(r'\s+'));
+    final rightWords = right.split(RegExp(r'\s+'));
+    final maxOverlap = leftWords.length < rightWords.length
+        ? leftWords.length
+        : rightWords.length;
+
+    for (var overlap = maxOverlap; overlap > 0; overlap--) {
+      final leftSlice = leftWords.sublist(leftWords.length - overlap).join(' ');
+      final rightSlice = rightWords.sublist(0, overlap).join(' ');
+      if (leftSlice == rightSlice) {
+        return '${leftWords.join(' ')} ${rightWords.sublist(overlap).join(' ')}'
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+      }
+    }
+
+    return '$left $right';
   }
 
   void dispose() {
