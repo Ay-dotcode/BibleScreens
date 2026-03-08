@@ -12,7 +12,6 @@ dependencies:
 
   # Speech recognition — free, uses device built-in STT (no API key)
   speech_to_text: ^6.6.2
-  record: ^5.1.2
 
   # HTTP for Bible API (bible-api.com — free, no key required)
   http: ^1.2.0
