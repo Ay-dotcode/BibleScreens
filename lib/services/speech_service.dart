@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -33,10 +34,26 @@ class SpeechService {
 
   Future<bool> init() async {
     _setState(ListeningState.initializing);
-    _available = await _stt.initialize(
-      onError: _onError,
-      onStatus: _onStatus,
-    );
+    try {
+      _available = await _stt.initialize(
+        onError: _onError,
+        onStatus: _onStatus,
+      );
+    } on MissingPluginException {
+      _available = false;
+      _errorController.add(
+        'Speech recognition plugin is not available on this platform. '
+        'Try Android, iOS, web, or a supported desktop target.',
+      );
+    } on PlatformException catch (error) {
+      _available = false;
+      _errorController.add(
+          'Speech recognition init failed: ${error.message ?? error.code}');
+    } catch (_) {
+      _available = false;
+      _errorController.add('Speech recognition failed to initialize.');
+    }
+
     if (!_available) {
       _setState(ListeningState.error);
       _errorController.add('Speech recognition not available on this device.');
@@ -54,7 +71,9 @@ class SpeechService {
 
   Future<void> stopListening() async {
     _wantListening = false;
-    await _stt.stop();
+    if (_available) {
+      await _stt.stop();
+    }
     _setState(ListeningState.idle);
   }
 
@@ -63,16 +82,30 @@ class SpeechService {
 
     _setState(ListeningState.listening);
 
-    await _stt.listen(
-      onResult: _onResult,
-      listenFor: const Duration(minutes: 5),
-      pauseFor: const Duration(seconds: 4),
-      localeId: 'en_US',
-      listenOptions: SpeechListenOptions(
-        partialResults: true,
-        cancelOnError: false,
-      ),
-    );
+    try {
+      await _stt.listen(
+        onResult: _onResult,
+        listenFor: const Duration(minutes: 5),
+        pauseFor: const Duration(seconds: 4),
+        localeId: 'en_US',
+        listenOptions: SpeechListenOptions(
+          partialResults: true,
+          cancelOnError: false,
+        ),
+      );
+    } on MissingPluginException {
+      _available = false;
+      _wantListening = false;
+      _setState(ListeningState.error);
+      _errorController.add(
+        'Speech recognition plugin is unavailable on this platform.',
+      );
+    } on PlatformException catch (error) {
+      _wantListening = false;
+      _setState(ListeningState.error);
+      _errorController
+          .add('Could not start listening: ${error.message ?? error.code}');
+    }
   }
 
   void _onResult(SpeechRecognitionResult result) {
