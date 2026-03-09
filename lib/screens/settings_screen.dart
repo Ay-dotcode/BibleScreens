@@ -62,6 +62,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 (v) {
               _settings.update((s) => s.showReference = v);
             }),
+            _outputBackgroundImageTile(),
             const SizedBox(height: 32),
             _section('Transcript Panel'),
             _toggle('Show live transcript', _settings.showTranscript, (v) {
@@ -238,6 +239,105 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Widget _outputBackgroundImageTile() {
+    final hasImage = _settings.outputBackgroundImageUrl.trim().isNotEmpty;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8, bottom: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Output background image (second display)',
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.75),
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            hasImage
+                ? _settings.outputBackgroundImageUrl
+                : 'No image selected',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.45),
+              fontSize: 12,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              OutlinedButton(
+                onPressed: _editOutputBackgroundImage,
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.25)),
+                ),
+                child: const Text('Set image URL'),
+              ),
+              const SizedBox(width: 10),
+              if (hasImage)
+                OutlinedButton(
+                  onPressed: () {
+                    _settings.update((s) => s.outputBackgroundImageUrl = '');
+                  },
+                  style: OutlinedButton.styleFrom(
+                    side:
+                        BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                  ),
+                  child: const Text('Clear'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editOutputBackgroundImage() async {
+    final controller =
+        TextEditingController(text: _settings.outputBackgroundImageUrl);
+
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A2E),
+        title: const Text('Output background image URL'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white70),
+          decoration: const InputDecoration(
+            hintText: 'https://.../background.jpg',
+            hintStyle: TextStyle(color: Colors.white38),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(null),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+    if (value == null) return;
+
+    _settings.update((s) => s.outputBackgroundImageUrl = value);
   }
 
   Widget _offlineDownloadTile() {

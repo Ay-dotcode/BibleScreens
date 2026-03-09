@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+
 import 'app.dart';
 
-void main() {
+void main(List<String> args) {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ChurchDisplayApp());
+  final forceDisplayMode =
+      args.contains('--display-window') || args.contains('--display');
+  runApp(ChurchDisplayApp(forceDisplayMode: forceDisplayMode));
 }

@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 
 import '../models/app_settings.dart';
 import '../models/bible_verse.dart';
+import '../models/second_display_state.dart';
 import '../services/bible_service.dart';
+import '../services/second_display_bridge.dart';
 import '../services/speech_service.dart';
 import '../services/verse_detector.dart';
 // ignore: unused_import
@@ -22,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final _speech = SpeechService();
   final _bible = BibleService();
   final _settings = AppSettings.instance;
+  final _displayBridge = SecondDisplayBridge();
 
   BibleVerse? _currentVerse;
   String _transcript = '';
@@ -41,11 +44,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   late Animation<double> _fadeAnim;
   late AnimationController _pulseCtrl;
   late Animation<double> _pulseAnim;
+  late VoidCallback _settingsSyncListener;
 
   @override
   void initState() {
     super.initState();
     _initAnimations();
+    _settingsSyncListener = () {
+      _publishToSecondDisplay();
+    };
+    _settings.addListener(_settingsSyncListener);
     _initServices();
   }
 
@@ -64,6 +72,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _initServices() async {
     await _settings.load();
     await _bible.init();
+    await _publishToSecondDisplay();
 
     _transcriptSub = _speech.transcriptStream.listen(_onTranscript);
     _stateSub = _speech.stateStream.listen(_onStateChange);
@@ -134,6 +143,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _isLoading = false;
       });
       _fadeCtrl.forward();
+      await _publishToSecondDisplay();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -162,6 +172,98 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _lastDetectedRef = null;
     });
     _fadeCtrl.reset();
+    _publishToSecondDisplay();
+  }
+
+  void _clearOutputOnly() {
+    setState(() {
+      _currentVerse = null;
+      _lastDetectedRef = null;
+    });
+    _fadeCtrl.reset();
+    _publishToSecondDisplay();
+  }
+
+  SecondDisplayState _currentDisplayState() {
+    return SecondDisplayState(
+      verseText: _currentVerse?.text ?? '',
+      reference: _currentVerse?.reference.display ?? '',
+      translation: _currentVerse?.translation ?? '',
+      showReference: _settings.showReference,
+      showTranslation: _settings.showTranslation,
+      bgColor: _settings.bgColor.toARGB32(),
+      verseColor: _settings.verseColor.toARGB32(),
+      refColor: _settings.refColor.toARGB32(),
+      verseFontSize: _settings.verseFontSize,
+      refFontSize: _settings.refFontSize,
+      fontFamily: _settings.fontFamily,
+      backgroundImageUrl: _settings.outputBackgroundImageUrl,
+    );
+  }
+
+  Future<void> _publishToSecondDisplay() async {
+    await _displayBridge.publish(_currentDisplayState());
+  }
+
+  Future<void> _openSecondDisplay() async {
+    try {
+      await _displayBridge.openDisplayWindow();
+      await _publishToSecondDisplay();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Second display opened/updated.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open second display: $error')),
+      );
+    }
+  }
+
+  Future<void> _changeOutputBackgroundImage() async {
+    final controller =
+        TextEditingController(text: _settings.outputBackgroundImageUrl);
+
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1A1A2E),
+          title: const Text('Output background image URL'),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            style: const TextStyle(color: Colors.white70),
+            decoration: const InputDecoration(
+              hintText: 'https://.../background.jpg',
+              hintStyle: TextStyle(color: Colors.white38),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(null),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(''),
+              child: const Text('Clear image'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    controller.dispose();
+    if (value == null) return;
+
+    _settings.update((s) => s.outputBackgroundImageUrl = value);
+    await _publishToSecondDisplay();
   }
 
   @override
@@ -498,6 +600,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             if (_currentVerse != null)
               _iconBtn(Icons.clear_rounded, 'Clear', _clearDisplay),
 
+            _iconBtn(Icons.open_in_new_rounded, 'Open second display',
+                _openSecondDisplay),
+
+            _iconBtn(Icons.layers_clear_rounded, 'Clear output screen',
+                _clearOutputOnly),
+
+            _iconBtn(Icons.image_rounded, 'Output background image',
+                _changeOutputBackgroundImage),
+
             // Mic button
             _micButton(isListening),
 
@@ -653,10 +764,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _settings.removeListener(_settingsSyncListener);
     _transcriptSub?.cancel();
     _stateSub?.cancel();
     _errorSub?.cancel();
     _speech.dispose();
+    _displayBridge.dispose();
     _fadeCtrl.dispose();
     _pulseCtrl.dispose();
     super.dispose();

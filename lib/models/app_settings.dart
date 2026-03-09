@@ -25,6 +25,7 @@ class AppSettings extends ChangeNotifier {
   // Transcription panel
   bool showTranscript = true;
   double transcriptOpacity = 0.7;
+  String outputBackgroundImageUrl = '';
 
   static AppSettings? _instance;
   static AppSettings get instance => _instance ??= AppSettings._();
@@ -46,6 +47,8 @@ class AppSettings extends ChangeNotifier {
         showTranscript = json['showTranscript'] ?? showTranscript;
         transcriptOpacity =
             (json['transcriptOpacity'] ?? transcriptOpacity).toDouble();
+        outputBackgroundImageUrl =
+          json['outputBackgroundImageUrl'] ?? outputBackgroundImageUrl;
         fontFamily = json['fontFamily'] ?? fontFamily;
         if (json['bgColor'] != null) bgColor = Color(json['bgColor']);
         if (json['verseColor'] != null) verseColor = Color(json['verseColor']);
@@ -64,6 +67,7 @@ class AppSettings extends ChangeNotifier {
         'translation': translation,
         'showTranscript': showTranscript,
         'transcriptOpacity': transcriptOpacity,
+        'outputBackgroundImageUrl': outputBackgroundImageUrl,
         'fontFamily': fontFamily,
         'bgColor': bgColor.toARGB32(),
         'verseColor': verseColor.toARGB32(),
