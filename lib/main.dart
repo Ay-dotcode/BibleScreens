@@ -8,3 +8,4 @@ void main(List<String> args) {
       args.contains('--display-window') || args.contains('--display');
   runApp(ChurchDisplayApp(forceDisplayMode: forceDisplayMode));
 }
+

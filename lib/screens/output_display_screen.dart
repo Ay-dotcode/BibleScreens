@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../models/second_display_state.dart';
 import '../services/second_display_bridge.dart';
+// ignore: unused_import
+import '../utils/color_compat.dart';
 
 class OutputDisplayScreen extends StatefulWidget {
   const OutputDisplayScreen({super.key});
