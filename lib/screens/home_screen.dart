@@ -293,109 +293,119 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget _buildVerse() {
     return FadeTransition(
       opacity: _fadeAnim,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // Decorative top line
-          Container(
-            width: 60,
-            height: 2,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Colors.transparent,
-                  Colors.white.withValues(alpha: 0.3),
-                  Colors.transparent
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 32),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final maxContentWidth =
+              constraints.maxWidth > 1200 ? 1200.0 : constraints.maxWidth;
 
-          // Verse text
-          Text(
-            '"${_currentVerse!.text}"',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: _settings.verseFontSize,
-              color: _settings.verseColor,
-              fontFamily: _settings.fontFamily,
-              height: 1.45,
-              fontWeight: FontWeight.w400,
-              shadows: [
-                Shadow(
-                  blurRadius: 40,
-                  color: Colors.white.withValues(alpha: 0.08),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          // Reference
-          if (_settings.showReference)
-            Row(
+          return ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxContentWidth),
+            child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                // Decorative top line
                 Container(
-                    width: 24,
-                    height: 1,
-                    color: _settings.refColor.withValues(alpha: 0.4)),
-                const SizedBox(width: 12),
-                Text(
-                  _currentVerse!.reference.display,
-                  style: TextStyle(
-                    fontSize: _settings.refFontSize,
-                    color: _settings.refColor,
-                    letterSpacing: 1.5,
-                    fontWeight: FontWeight.w300,
+                  width: 60,
+                  height: 2,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.transparent,
+                        Colors.white.withValues(alpha: 0.3),
+                        Colors.transparent
+                      ],
+                    ),
                   ),
                 ),
-                if (_settings.showTranslation) ...[
-                  const SizedBox(width: 10),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                          color: _settings.refColor.withValues(alpha: 0.3)),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      _currentVerse!.translation,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: _settings.refColor.withValues(alpha: 0.7),
-                        letterSpacing: 1.5,
+                const SizedBox(height: 32),
+
+                // Verse text
+                Text(
+                  '"${_currentVerse!.text}"',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: _settings.verseFontSize,
+                    color: _settings.verseColor,
+                    fontFamily: _settings.fontFamily,
+                    height: 1.45,
+                    fontWeight: FontWeight.w400,
+                    shadows: [
+                      Shadow(
+                        blurRadius: 40,
+                        color: Colors.white.withValues(alpha: 0.08),
                       ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 32),
+
+                // Reference
+                if (_settings.showReference)
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 12,
+                    runSpacing: 8,
+                    children: [
+                      Container(
+                          width: 24,
+                          height: 1,
+                          color: _settings.refColor.withValues(alpha: 0.4)),
+                      Text(
+                        _currentVerse!.reference.display,
+                        style: TextStyle(
+                          fontSize: _settings.refFontSize,
+                          color: _settings.refColor,
+                          letterSpacing: 1.5,
+                          fontWeight: FontWeight.w300,
+                        ),
+                      ),
+                      if (_settings.showTranslation)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                                color:
+                                    _settings.refColor.withValues(alpha: 0.3)),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            _currentVerse!.translation,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: _settings.refColor.withValues(alpha: 0.7),
+                              letterSpacing: 1.5,
+                            ),
+                          ),
+                        ),
+                      Container(
+                          width: 24,
+                          height: 1,
+                          color: _settings.refColor.withValues(alpha: 0.4)),
+                    ],
+                  ),
+
+                const SizedBox(height: 32),
+                Container(
+                  width: 60,
+                  height: 2,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.transparent,
+                        Colors.white.withValues(alpha: 0.3),
+                        Colors.transparent
+                      ],
                     ),
                   ),
-                ],
-                const SizedBox(width: 12),
-                Container(
-                    width: 24,
-                    height: 1,
-                    color: _settings.refColor.withValues(alpha: 0.4)),
+                ),
               ],
             ),
-
-          const SizedBox(height: 32),
-          Container(
-            width: 60,
-            height: 2,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Colors.transparent,
-                  Colors.white.withValues(alpha: 0.3),
-                  Colors.transparent
-                ],
-              ),
-            ),
-          ),
-        ],
+          );
+        },
       ),
     );
   }
