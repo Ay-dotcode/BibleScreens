@@ -1,186 +1,223 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
-import 'package:flutter/services.dart';
-import 'package:speech_to_text/speech_recognition_error.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:record/record.dart';
+import 'package:web_socket_channel/io.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 enum ListeningState { idle, initializing, listening, paused, error }
 
 class SpeechService {
-  final SpeechToText _stt = SpeechToText();
-  static const Duration _listenWindow = Duration(minutes: 30);
-  static const Duration _pauseWindow = Duration(minutes: 30);
+  // ── Deepgram config ────────────────────────────────────────────────────────
+  static const String _apiKey = '041d7c9ddefd54080663f8c21c82e65ce6c2367d'; 
+
+  static const String _wsUrl =
+      'wss://api.deepgram.com/v1/listen'
+      '?encoding=linear16'
+      '&sample_rate=16000'
+      '&channels=1'
+      '&model=nova-3'          // best real-time model as of 2025
+      '&language=en-US'
+      '&interim_results=true'  // partial results as the person speaks
+      '&punctuate=true'
+      '&endpointing=300';      // ms of silence before finalising a segment
+
+  // ── Internal state ─────────────────────────────────────────────────────────
+  final _recorder = AudioRecorder();
+  WebSocketChannel? _channel;
+  StreamSubscription<Uint8List>? _audioSub;
+  StreamSubscription<dynamic>? _wsSub;
 
   ListeningState _state = ListeningState.idle;
   ListeningState get state => _state;
 
-  bool _wantListening = false; // user intent
-  bool _available = false;
-  bool _startingListen = false;
-  Timer? _restartTimer;
-  DateTime _lastListenAttempt = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _wantListening = false;
 
+  // ── Public streams ─────────────────────────────────────────────────────────
   final _transcriptController = StreamController<String>.broadcast();
   final _stateController = StreamController<ListeningState>.broadcast();
   final _errorController = StreamController<String>.broadcast();
 
-  static const int _maxTranscriptChars = 500;
-
-  /// Live partial + final transcription text.
   Stream<String> get transcriptStream => _transcriptController.stream;
-
-  /// Listening state changes.
   Stream<ListeningState> get stateStream => _stateController.stream;
-
-  /// Error messages.
   Stream<String> get errorStream => _errorController.stream;
 
+  // ── Transcript state ───────────────────────────────────────────────────────
+  static const int _maxTranscriptChars = 500;
   String _lastTranscript = '';
   String get lastTranscript => _lastTranscript;
   String _stableTranscript = '';
-  String _liveTranscript = '';
+
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   Future<bool> init() async {
     _setState(ListeningState.initializing);
-    try {
-      _available = await _stt.initialize(
-        onError: _onError,
-        onStatus: _onStatus,
-      );
-    } on MissingPluginException {
-      _available = false;
+
+    final hasPermission = await _recorder.hasPermission();
+    if (!hasPermission) {
+      _setState(ListeningState.error);
       _errorController.add(
-        'Speech recognition plugin is not available on this platform. '
-        'Try Android, iOS, web, or a supported desktop target.',
+        'Microphone permission denied. '
+        'Allow microphone access in Windows Settings → Privacy → Microphone.',
       );
-    } on PlatformException catch (error) {
-      _available = false;
-      _errorController.add(
-          'Speech recognition init failed: ${error.message ?? error.code}');
-    } catch (_) {
-      _available = false;
-      _errorController.add('Speech recognition failed to initialize.');
+      return false;
     }
 
-    if (!_available) {
-      _setState(ListeningState.error);
-      _errorController.add('Speech recognition not available on this device.');
-    } else {
-      _setState(ListeningState.idle);
-    }
-    return _available;
+    _setState(ListeningState.idle);
+    return true;
   }
 
   Future<void> startListening() async {
-    if (!_available) return;
+    if (_wantListening) return;
     _wantListening = true;
     _stableTranscript = '';
-    _liveTranscript = '';
     _lastTranscript = '';
-    await _listen();
+    await _connect();
   }
 
   Future<void> stopListening() async {
     _wantListening = false;
-    _restartTimer?.cancel();
-    _restartTimer = null;
-    if (_available) {
-      await _stt.stop();
-    }
+    await _disconnect();
     _setState(ListeningState.idle);
   }
 
-  Future<void> _listen() async {
-    if (!_wantListening || _stt.isListening || _startingListen) return;
+  // ── Connection ─────────────────────────────────────────────────────────────
 
-    final now = DateTime.now();
-    if (now.difference(_lastListenAttempt) <
-        const Duration(milliseconds: 400)) {
-      _scheduleRestart(const Duration(milliseconds: 400));
-      return;
-    }
-    _lastListenAttempt = now;
-    _startingListen = true;
-
-    _setState(ListeningState.listening);
+  Future<void> _connect() async {
+    _setState(ListeningState.initializing);
 
     try {
-      await _stt.listen(
-        onResult: _onResult,
-        listenFor: _listenWindow,
-        pauseFor: _pauseWindow,
-        localeId: 'en_US',
-        listenOptions: SpeechListenOptions(
-          partialResults: true,
-          cancelOnError: false,
-          listenMode: ListenMode.dictation,
+      // IOWebSocketChannel lets us pass the Authorization header,
+      // which is required by Deepgram (query-param auth is deprecated).
+      _channel = IOWebSocketChannel.connect(
+        Uri.parse(_wsUrl),
+        headers: {'Authorization': 'Token $_apiKey'},
+      );
+
+      // Wait for the connection handshake to complete.
+      await _channel!.ready;
+
+      _setState(ListeningState.listening);
+
+      // Listen for transcript events from Deepgram.
+      _wsSub = _channel!.stream.listen(
+        _onWsMessage,
+        onError: _onWsError,
+        onDone: _onWsDone,
+      );
+
+      // Start capturing microphone audio as raw 16-bit PCM.
+      final audioStream = await _recorder.startStream(
+        const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
         ),
       );
-    } on MissingPluginException {
-      _available = false;
-      _wantListening = false;
-      _setState(ListeningState.error);
-      _errorController.add(
-        'Speech recognition plugin is unavailable on this platform.',
+
+      // Forward every audio chunk straight to Deepgram.
+      _audioSub = audioStream.listen(
+        (Uint8List chunk) {
+          try {
+            _channel?.sink.add(chunk);
+          } catch (_) {
+            // Channel closed mid-stream — _onWsDone will handle reconnect.
+          }
+        },
+        onError: (Object error) {
+          _errorController.add('Audio capture error: $error');
+        },
       );
-    } on PlatformException catch (error) {
-      _wantListening = false;
-      _setState(ListeningState.error);
-      _errorController
-          .add('Could not start listening: ${error.message ?? error.code}');
     } catch (error) {
-      final message = error.toString().toLowerCase();
-      if (message.contains('already started')) {
-        _scheduleRestart(const Duration(milliseconds: 700));
-      } else {
-        _errorController.add('Could not start listening: $error');
+      _setState(ListeningState.error);
+      _errorController.add('Could not connect to Deepgram: $error');
+      // Retry after a short delay if the user still wants to listen.
+      if (_wantListening) {
+        Future.delayed(const Duration(seconds: 2), () {
+          if (_wantListening) _connect();
+        });
       }
-    } finally {
-      _startingListen = false;
     }
   }
 
-  void _onResult(SpeechRecognitionResult result) {
-    final text = result.recognizedWords.trim();
-    if (text.isEmpty) return;
+  Future<void> _disconnect() async {
+    await _audioSub?.cancel();
+    _audioSub = null;
 
-    if (result.finalResult) {
-      _stableTranscript = _mergeTranscript(_stableTranscript, text);
-      _liveTranscript = '';
-      _emitTranscript(_stableTranscript);
+    await _wsSub?.cancel();
+    _wsSub = null;
+
+    if (await _recorder.isRecording()) {
+      await _recorder.stop();
+    }
+
+    // Send Deepgram's close-stream signal before closing the socket.
+    try {
+      _channel?.sink.add('{"type":"CloseStream"}');
+    } catch (_) {}
+    await _channel?.sink.close();
+    _channel = null;
+  }
+
+  // ── WebSocket events ───────────────────────────────────────────────────────
+
+  void _onWsMessage(dynamic raw) {
+    if (raw is! String) return;
+
+    final Map<String, dynamic> json;
+    try {
+      json = jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
       return;
     }
 
-    _liveTranscript = text;
-    _emitTranscript(_mergeTranscript(_stableTranscript, _liveTranscript));
-  }
+    // Deepgram sends several message types; we only care about Results.
+    final type = json['type'] as String?;
+    if (type != 'Results') return;
 
-  void _onStatus(String status) {
-    // Keep stream effectively continuous if engine ends unexpectedly.
-    if ((status == 'done' || status == 'notListening') && _wantListening) {
-      _scheduleRestart(const Duration(milliseconds: 120));
-    }
-    if (status == 'listening') {
-      _setState(ListeningState.listening);
-    }
-  }
+    final channel = json['channel'] as Map<String, dynamic>?;
+    final alternatives =
+        channel?['alternatives'] as List<dynamic>?;
+    if (alternatives == null || alternatives.isEmpty) return;
 
-  void _onError(SpeechRecognitionError error) {
-    // Transient errors (e.g. "no speech") → just restart
-    final transient = {'no-speech', 'audio', 'network', 'aborted'};
-    if (transient.contains(error.errorMsg) && _wantListening) {
-      _scheduleRestart(const Duration(seconds: 1));
+    final transcript =
+        (alternatives.first as Map<String, dynamic>)['transcript'] as String?;
+    if (transcript == null || transcript.trim().isEmpty) return;
+
+    final isFinal = json['is_final'] as bool? ?? false;
+    final speechFinal = json['speech_final'] as bool? ?? false;
+
+    if (isFinal || speechFinal) {
+      // Commit to stable transcript.
+      _stableTranscript =
+          _mergeTranscript(_stableTranscript, transcript.trim());
+      _emitTranscript(_stableTranscript);
     } else {
-      _errorController.add('Recognition error: ${error.errorMsg}');
+      // Partial result — show stable + current live hypothesis.
+      _emitTranscript(_mergeTranscript(_stableTranscript, transcript.trim()));
     }
   }
 
-  void _scheduleRestart(Duration delay) {
-    if (!_wantListening || !_available) return;
-    _restartTimer?.cancel();
-    _restartTimer = Timer(delay, _listen);
+  void _onWsError(Object error) {
+    _errorController.add('Deepgram connection error: $error');
+    if (_wantListening) {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (_wantListening) _connect();
+      });
+    }
   }
+
+  void _onWsDone() {
+    // Server closed the connection — reconnect if still wanted.
+    if (_wantListening) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (_wantListening) _connect();
+      });
+    }
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
   void _setState(ListeningState s) {
     _state = s;
@@ -199,6 +236,8 @@ class SpeechService {
     _transcriptController.add(clipped);
   }
 
+  /// Merges two transcript segments, de-duplicating overlapping words at the
+  /// boundary (the same logic as before).
   String _mergeTranscript(String base, String incoming) {
     final left = base.trim();
     final right = incoming.trim();
@@ -212,7 +251,8 @@ class SpeechService {
         : rightWords.length;
 
     for (var overlap = maxOverlap; overlap > 0; overlap--) {
-      final leftSlice = leftWords.sublist(leftWords.length - overlap).join(' ');
+      final leftSlice =
+          leftWords.sublist(leftWords.length - overlap).join(' ');
       final rightSlice = rightWords.sublist(0, overlap).join(' ');
       if (leftSlice == rightSlice) {
         return '${leftWords.join(' ')} ${rightWords.sublist(overlap).join(' ')}'
@@ -225,8 +265,8 @@ class SpeechService {
   }
 
   void dispose() {
-    _restartTimer?.cancel();
-    _stt.stop();
+    _wantListening = false;
+    _disconnect();
     _transcriptController.close();
     _stateController.close();
     _errorController.close();
