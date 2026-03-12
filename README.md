@@ -32,16 +32,6 @@ flutter create church_display
 cd church_display
 ```
 
-### 2. Replace files
-
-Copy all files from this repo into your project, overwriting defaults:
-
-```
-lib/          → replace entirely
-macos/Runner/Info.plist → replace (macOS only)
-pubspec.yaml  → replace
-```
-
 ### 3. Install dependencies
 
 ```bash
@@ -84,7 +74,6 @@ In `macos/Runner/DebugProfile.entitlements` and `macos/Runner/Release.entitlemen
 
 1. Make sure **Windows Speech Recognition** is enabled:  
    `Settings → Time & Language → Speech → Windows Speech Recognition`
-2. No additional code changes required.
 
 ### Linux
 
