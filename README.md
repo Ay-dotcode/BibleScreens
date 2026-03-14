@@ -1,13 +1,15 @@
 # ⛪ Church Display — Auto Verse Detection
 
-A human-free, EasyWorship-style Bible verse display for churches.  
-Just talk — if you mention a Bible verse, it appears on screen automatically.
+A hands-free, EasyWorship-style Bible verse display for churches.  
+Just talk — if you mention a Bible verse, it appears on the output screen automatically.
+
+The app runs as a single Flutter desktop (or web) application. The **control window** (home screen) handles microphone capture, transcript display, and settings. A separate **output window** (`?display=1` on web, or `--display-window` on desktop) shows only the verse — designed to be placed on a projector or second monitor.
 
 ---
 
 ## ✨ Features
 
-- 🎙 **Continuous microphone listening** using your device's built-in speech engine (free, no API key)
+- 🎙 **Continuous microphone listening** — raw audio captured via the `record` package and streamed to Deepgram over a WebSocket for real-time transcription
 - 📖 **Smart verse detection** — understands all of these:
   - `John 3:16`
   - `John 3 16`
@@ -15,54 +17,65 @@ Just talk — if you mention a Bible verse, it appears on screen automatically.
   - `John chapter three verse sixteen`
   - `First Corinthians thirteen four`
   - `Psalms 23` → Psalm 23:1
+- 🎤 **Microphone selector** — choose any available input device from a dropdown in the control window
 - 📡 **Bible text** fetched from [bible-api.com](https://bible-api.com) — free, no account needed
 - 💾 **Local cache** — verses load instantly after first fetch, works offline for cached verses
 - 📥 **Full offline download** — download a whole translation once in Settings
+- 🖼 **Background image** — set a URL in Settings to show a full-screen image behind the verse text on the output screen
 - 🎨 **Worship-style dark display** with elegant typography
-- ⚙️ **Settings** — font size, Bible translation (KJV, WEB, ASV, BBE, Darby, DRA, YLT), transcript panel, and more
+- 🖥 **Dual-window output** — the output display screen is a second window (or browser tab) driven by a file-based bridge; the two windows do not need to be on the same machine
+- ⚙️ **Settings** — font size, colours, Bible translation (KJV, WEB, ASV, BBE, Darby, DRA, YLT), transcript panel, background image URL, and more
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Create a new Flutter project
+### 1. Clone and install dependencies
 
 ```bash
-flutter create church_display
-cd church_display
-```
-
-### 3. Install dependencies
-
-```bash
+git clone https://github.com/Ay-dotcode/bible_screens.git
+cd bible_screens
 flutter pub get
 ```
 
-### 4. Run
+### 2. Run
 
 ```bash
+# Windows (primary development target)
+flutter run -d windows
+
 # macOS
 flutter run -d macos
 
-# Windows
-flutter run -d windows
-
 # Linux
 flutter run -d linux
+
+# Web (opens control window; add ?display=1 in a second tab for the output screen)
+flutter run -d chrome
 ```
+
+### 3. Open the output screen
+
+**Desktop:** launch a second instance of the app with the `--display-window` flag, or move to a second monitor — the control window publishes state via a shared JSON file that the output window polls every 250 ms.
+
+**Web:** open a second browser tab and add `?display=1` to the URL.
 
 ---
 
 ## 🖥 Platform Setup
 
+### Windows
+
+The app captures audio using the `record` package and streams it to Deepgram. No additional OS configuration is required beyond allowing microphone access when Windows prompts for it.
+
 ### macOS
 
-The `macos/Runner/Info.plist` file in this repo already includes the required permissions:
+`macos/Runner/Info.plist` already includes the required permissions:
 
 - `NSMicrophoneUsageDescription`
 - `NSSpeechRecognitionUsageDescription`
 
-**Also enable the network entitlement** (needed to reach bible-api.com).  
+Also enable the network entitlement (needed to reach Deepgram and bible-api.com).  
 In `macos/Runner/DebugProfile.entitlements` and `macos/Runner/Release.entitlements`, add:
 
 ```xml
@@ -70,31 +83,26 @@ In `macos/Runner/DebugProfile.entitlements` and `macos/Runner/Release.entitlemen
 <true/>
 ```
 
-### Windows
-
-1. Make sure **Windows Speech Recognition** is enabled:  
-   `Settings → Time & Language → Speech → Windows Speech Recognition`
-
 ### Linux
 
-Install the `speech_dispatcher` library:
+Install the ALSA / PulseAudio development headers required by the `record` package:
 
 ```bash
-sudo apt-get install -y libspeechd-dev speech-dispatcher
+sudo apt-get install -y libasound2-dev libpulse-dev
 ```
-
-> **Note:** Linux STT support is limited. The `speech_to_text` package uses speech-dispatcher,
-> which may require additional configuration. Alternatively, set up a Google STT API key
-> and use the `speech_to_text` package's `sttConfigure` option.
 
 ---
 
 ## 🗣 How It Works
 
-1. Press the **🎙 mic button** in the top-right corner to start listening.
-2. Speak naturally during the service. The live transcript appears at the bottom.
-3. Whenever a Bible verse reference is detected, the verse text is fetched and displayed instantly.
-4. Press **✕** to clear the screen, or the mic button again to pause.
+1. Press the **🎙 mic button** in the control window to start listening.
+2. Raw PCM audio is captured from the selected microphone at 16 kHz mono and streamed over a WebSocket to Deepgram's `nova-3` model.
+3. Deepgram returns interim and final transcripts. The live transcript is displayed at the bottom of the control window.
+4. `VerseDetector` scans every transcript update for a Bible verse reference.
+5. When a reference is found, `BibleService` fetches the verse text (from cache or bible-api.com).
+6. The verse is written to a shared JSON state file via `SecondDisplayBridge`.
+7. The output display screen polls that file every 250 ms and re-renders whenever the state changes.
+8. Press **✕** to clear the screen, or the mic button again to stop listening.
 
 ### Verse Detection Examples
 
@@ -111,88 +119,141 @@ sudo apt-get install -y libspeechd-dev speech-dispatcher
 
 ## ⚙️ Settings (accessible from the gear icon)
 
-| Setting                    | Description                                         |
-| -------------------------- | --------------------------------------------------- |
-| **Translation**            | KJV, WEB, ASV, BBE, Darby, DRA, YLT                 |
-| **Verse font size**        | 24–100px                                            |
-| **Reference font size**    | 14–60px                                             |
-| **Font family**            | Georgia, Palatino, Times New Roman, etc.            |
-| **Show translation badge** | Toggle KJV/WEB/etc. badge                           |
-| **Show reference**         | Toggle book/chapter/verse label                     |
-| **Live transcript**        | Show/hide bottom transcript panel                   |
-| **Transcript opacity**     | Adjust panel transparency                           |
-| **Download now**           | Downloads full selected translation for offline use |
+| Setting                    | Description                                                 |
+| -------------------------- | ----------------------------------------------------------- |
+| **Translation**            | KJV, WEB, ASV, BBE, Darby, DRA, YLT                         |
+| **Verse font size**        | 24–100 px                                                   |
+| **Reference font size**    | 14–60 px                                                    |
+| **Font family**            | Georgia, Palatino, Times New Roman, etc.                    |
+| **Verse colour**           | Colour of the verse text on the output screen               |
+| **Reference colour**       | Colour of the book/chapter/verse label                      |
+| **Background colour**      | Solid background colour (used when no image is set)         |
+| **Background image URL**   | Optional full-screen image behind the verse (any HTTPS URL) |
+| **Show translation badge** | Toggle KJV/WEB/etc. badge                                   |
+| **Show reference**         | Toggle book/chapter/verse label                             |
+| **Live transcript**        | Show/hide bottom transcript panel                           |
+| **Transcript opacity**     | Adjust panel transparency                                   |
+| **Download now**           | Downloads the full selected translation for offline use     |
 
 ---
 
 ## 📦 Dependencies
 
-All free, no API keys required:
+| Package              | Purpose                                                            |
+| -------------------- | ------------------------------------------------------------------ |
+| `record`             | Capture raw PCM audio from the microphone                          |
+| `web_socket_channel` | Stream audio to Deepgram and receive transcripts over WebSocket    |
+| `http`               | Fetch verse text from bible-api.com                                |
+| `path_provider`      | Locate the app's documents directory (cache, settings, state file) |
+| `path`               | File path utilities                                                |
+| `web`                | Web-platform interop (used by the web bridge)                      |
+| `cupertino_icons`    | Icons                                                              |
 
-| Package           | Purpose                                     |
-| ----------------- | ------------------------------------------- |
-| `speech_to_text`  | Microphone + speech-to-text (device native) |
-| `http`            | Fetch verse text from bible-api.com         |
-| `path_provider`   | Locate cache/settings directory             |
-| `path`            | File path utilities                         |
-| `cupertino_icons` | Icons                                       |
+> **Speech-to-text backend:** Deepgram (`nova-3` model, `wss://api.deepgram.com/v1/listen`).  
+> An API key is embedded in `lib/services/speech_service.dart`. Replace it with your own key from [deepgram.com](https://deepgram.com) if you plan to deploy publicly.
 
 ---
 
 ## 🔒 Privacy
 
-- **No data leaves your device** except the verse reference sent to bible-api.com (e.g. `john+3:16`).
-- Speech recognition runs entirely **on-device** using your OS's built-in engine.
-- No account, no login, no telemetry.
-
-### Internet usage
-
-- The app uses internet for Bible text download from `bible-api.com`.
-- Speech recognition uses device/OS speech engine, not an app-hosted backend.
-- After running **Download now** in Settings for your chosen translation, verse display works offline.
+- Audio is streamed to **Deepgram** for transcription — it does not stay on-device.
+- Only the verse reference (e.g. `john+3:16`) is sent to bible-api.com.
+- Settings and cached verses are stored locally in the app's documents folder.
+- No account, login, or telemetry beyond the above.
 
 ---
 
 ## 🛠 Troubleshooting
 
-**"Speech recognition not available"**  
-→ Make sure your OS speech engine is configured and your microphone is working.
+**Mic button stuck on "initialising"**  
+→ Deepgram connection failed. Check your internet connection and that the API key in `speech_service.dart` is valid.
 
 **Verse not detected**  
-→ Speak clearly. The app needs at least a book name + two numbers (or word equivalents).  
-→ Check the live transcript at the bottom to see what was heard.
+→ Speak clearly. The detector needs at least a book name plus two numbers (or their word equivalents).  
+→ Watch the live transcript to see exactly what Deepgram heard.
 
 **Verse text not loading**  
 → Check your internet connection. bible-api.com must be reachable.  
-→ On macOS, ensure the network entitlement is set in `.entitlements` files.
+→ On macOS, ensure the network entitlement is set in the `.entitlements` files.
+
+**Output screen not updating**  
+→ Make sure both windows are running from the same user account (they share the same app documents directory).  
+→ On web, ensure the second tab has `?display=1` in its URL.
 
 **Wrong verse displayed**  
-→ The detector uses the most recent valid reference it hears. If stale transcript text remains, press ✕ to clear and restart listening.
+→ The detector always uses the most recent valid reference heard. Press ✕ to clear and start fresh.
 
 ---
 
 ## 🧱 Project Structure
 
-```text
-lib/
-  core/
-    theme/
-      app_theme.dart
-  models/
-    app_settings.dart
-    bible_verse.dart
-  screens/
-    home_screen.dart
-    settings_screen.dart
-  services/
-    speech_service.dart
-    verse_detector.dart
-    bible_service.dart
-  utils/
-    bible_books.dart
-    number_words.dart
-  app.dart
-  main.dart
+```
+bible_screens/
+├── lib/                          # All Dart application code
+│   ├── main.dart                 # Entry point — boots the app; accepts --display-window flag
+│   ├── app.dart                  # Root widget (ChurchDisplayApp); routes to control or output screen
+│   │
+│   ├── core/
+│   │   └── theme/
+│   │       └── app_theme.dart    # Shared colour constants and MaterialTheme (dark)
+│   │
+│   ├── models/                   # Plain data classes (no Flutter dependency)
+│   │   ├── app_settings.dart     # All user preferences; loads/saves as JSON; singleton
+│   │   ├── bible_verse.dart      # BibleVerse and VerseReference value objects
+│   │   └── second_display_state.dart  # Snapshot of everything the output screen needs to render
+│   │
+│   ├── screens/                  # Full-screen UI widgets
+│   │   ├── home_screen.dart      # Control window — mic button, transcript panel, verse preview,
+│   │   │                         #   microphone selector, background-image dialog
+│   │   ├── output_display_screen.dart  # Output (projector) window — renders verse text over
+│   │   │                               #   optional background image; driven by SecondDisplayBridge
+│   │   └── settings_screen.dart  # Settings drawer — fonts, colours, translation, offline download
+│   │
+│   ├── services/                 # Business logic and external integrations
+│   │   ├── speech_service.dart   # Captures raw PCM audio via `record`, streams to Deepgram
+│   │   │                         #   over WebSocket, exposes transcriptStream / stateStream /
+│   │   │                         #   errorStream / audioLevelStream; handles mic enumeration
+│   │   ├── verse_detector.dart   # Stateless parser — scans a transcript string for the most
+│   │   │                         #   recent Bible verse reference and returns a VerseReference
+│   │   ├── bible_service.dart    # Fetches verse text from bible-api.com; caches to disk as JSON;
+│   │   │                         #   supports full offline translation download
+│   │   ├── second_display_bridge.dart       # Conditional export — picks the right bridge impl
+│   │   ├── second_display_bridge_io.dart    # Desktop/native bridge: writes state to a JSON file,
+│   │   │                                    #   polls the file every 250 ms for the output screen
+│   │   ├── second_display_bridge_web.dart   # Web bridge: uses a BroadcastChannel between tabs
+│   │   └── second_display_bridge_stub.dart  # No-op stub for unsupported platforms
+│   │
+│   └── utils/                    # Pure utility/data helpers
+│       ├── bible_books.dart      # Complete list of all 66 Bible books with canonical names,
+│       │                         #   API slugs, and recognised aliases (abbreviations, ordinals)
+│       ├── bible_chapters.dart   # Chapter counts per book — used for offline download pagination
+│       ├── color_compat.dart     # Extension that back-ports Color.withValues() for older Flutter
+│       └── number_words.dart     # Converts English number words to digits ("three" → "3",
+│                                 #   "first" → "1", "twenty two" → "22")
+│
+├── test/                         # Automated tests
+│   ├── widget_test.dart          # Basic widget smoke test
+│   └── services/
+│       └── verse_detector_test.dart  # Unit tests for VerseDetector parsing logic
+│
+├── third_party/                  # Vendored packages not available on pub.dev
+│   └── speech_to_text_windows/   # Local fork/patch of speech_to_text for Windows compatibility
+│
+├── android/                      # Android platform project (not a primary target)
+├── ios/                          # iOS platform project (not a primary target)
+├── macos/                        # macOS platform project — entitlements and Info.plist edits needed
+├── windows/                      # Windows platform project — primary desktop target
+├── linux/                        # Linux platform project
+└── web/                          # Web platform project — index.html; supports dual-tab output mode
 ```
 
-This keeps UI, domain models, and integrations separate so you can add future features (song lyrics, overlays, scheduling, remote control) without rewriting existing modules.
+### Key data-flow summary
+
+```
+Microphone
+  └─► speech_service.dart  (raw PCM → Deepgram WebSocket → transcript text)
+        └─► verse_detector.dart  (transcript → VerseReference?)
+              └─► bible_service.dart  (VerseReference → verse text, from cache or API)
+                    └─► SecondDisplayBridge  (writes SecondDisplayState to shared file/channel)
+                          └─► output_display_screen.dart  (polls state → renders verse + background)
+```
