@@ -5,8 +5,8 @@ import 'core/theme/app_theme.dart';
 import 'screens/home_screen.dart';
 import 'screens/output_display_screen.dart';
 
-class ChurchDisplayApp extends StatelessWidget {
-  const ChurchDisplayApp({
+class BibleScreensApp extends StatelessWidget {
+  const BibleScreensApp({
     super.key,
     this.forceDisplayMode = false,
   });
@@ -24,7 +24,7 @@ class ChurchDisplayApp extends StatelessWidget {
     final isDisplayWindow = forceDisplayMode || isWebDisplayWindow;
 
     return MaterialApp(
-      title: 'Church Display',
+      title: 'Bible Screens',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark(),
       home: isDisplayWindow ? const OutputDisplayScreen() : const HomeScreen(),

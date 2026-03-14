@@ -45,7 +45,7 @@ class BibleService {
   Future<void> init() async {
     try {
       final dir = await getApplicationDocumentsDirectory();
-      final cacheDir = Directory(p.join(dir.path, 'church_display'));
+      final cacheDir = Directory(p.join(dir.path, 'bible_screens'));
       if (!await cacheDir.exists()) await cacheDir.create(recursive: true);
       _cacheFile = File(p.join(cacheDir.path, 'verse_cache.json'));
       await _loadDiskCache();

@@ -14,7 +14,7 @@
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Church Display</string>
+  <string>Bible Screens</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -28,11 +28,11 @@
 
   <!-- ✅ REQUIRED: Microphone access -->
   <key>NSMicrophoneUsageDescription</key>
-  <string>Church Display needs microphone access to listen for Bible verse references spoken during service.</string>
+  <string>Bible Screens needs microphone access to listen for Bible verse references spoken during service.</string>
 
   <!-- ✅ REQUIRED: Speech recognition -->
   <key>NSSpeechRecognitionUsageDescription</key>
-  <string>Church Display uses speech recognition to detect Bible verses mentioned during the service and display them automatically.</string>
+  <string>Bible Screens uses speech recognition to detect Bible verses mentioned during the service and display them automatically.</string>
 
   <key>NSHumanReadableCopyright</key>
   <string>Copyright © 2024. All rights reserved.</string>

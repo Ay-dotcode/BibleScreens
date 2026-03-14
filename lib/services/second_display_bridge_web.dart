@@ -6,7 +6,7 @@ import 'package:web/web.dart' as web;
 import '../models/second_display_state.dart';
 
 class SecondDisplayBridge {
-  static const _stateKey = 'church_display.second_screen.state';
+  static const _stateKey = 'bible_screens.second_screen.state';
 
   final _controller = StreamController<SecondDisplayState>.broadcast();
   Timer? _pollTimer;
@@ -38,7 +38,7 @@ class SecondDisplayBridge {
       ...Uri.base.queryParameters,
       'display': '1',
     });
-    final popup = web.window.open(uri.toString(), 'church_display_output');
+    final popup = web.window.open(uri.toString(), 'bible_screens_output');
     if (popup == null) {
       web.window.location.assign(uri.toString());
       return;

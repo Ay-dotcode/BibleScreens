@@ -1,4 +1,4 @@
-# ⛪ Church Display — Auto Verse Detection
+# ⛪ Bible Screens — Auto Verse Detection
 
 A hands-free, EasyWorship-style Bible verse display for churches.  
 Just talk — if you mention a Bible verse, it appears on the output screen automatically.

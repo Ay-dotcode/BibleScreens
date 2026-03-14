@@ -36,7 +36,7 @@ class AppSettings extends ChangeNotifier {
   Future<void> load() async {
     try {
       final dir = await getApplicationDocumentsDirectory();
-      _file = File(p.join(dir.path, 'church_display', 'settings.json'));
+      _file = File(p.join(dir.path, 'bible_screens', 'settings.json'));
       if (await _file!.exists()) {
         final json = jsonDecode(await _file!.readAsString());
         verseFontSize = (json['verseFontSize'] ?? verseFontSize).toDouble();
@@ -48,7 +48,7 @@ class AppSettings extends ChangeNotifier {
         transcriptOpacity =
             (json['transcriptOpacity'] ?? transcriptOpacity).toDouble();
         outputBackgroundImageUrl =
-          json['outputBackgroundImageUrl'] ?? outputBackgroundImageUrl;
+            json['outputBackgroundImageUrl'] ?? outputBackgroundImageUrl;
         fontFamily = json['fontFamily'] ?? fontFamily;
         if (json['bgColor'] != null) bgColor = Color(json['bgColor']);
         if (json['verseColor'] != null) verseColor = Color(json['verseColor']);

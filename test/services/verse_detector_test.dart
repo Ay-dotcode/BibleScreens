@@ -1,5 +1,5 @@
-import 'package:church_display/models/bible_verse.dart';
-import 'package:church_display/services/verse_detector.dart';
+import 'package:bible_screens/models/bible_verse.dart';
+import 'package:bible_screens/services/verse_detector.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {

@@ -390,7 +390,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
         const SizedBox(height: 24),
         Text(
-          'Church Display',
+          'Bible Screens',
           style: TextStyle(
             fontSize: 36,
             color: Colors.white.withValues(alpha: 0.08),
@@ -550,7 +550,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           children: [
             // App name
             Text(
-              'Church Display',
+              'Bible Screens',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.3),
                 fontSize: 14,

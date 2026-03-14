@@ -55,7 +55,7 @@ class SecondDisplayBridge {
     if (_stateFile != null) return _stateFile!;
 
     final baseDir = await getApplicationSupportDirectory();
-    final appDir = Directory(p.join(baseDir.path, 'church_display'));
+    final appDir = Directory(p.join(baseDir.path, 'bible_screens'));
     if (!await appDir.exists()) {
       await appDir.create(recursive: true);
     }
