@@ -9,7 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import '../utils/color_compat.dart';
 
 class AppSettings extends ChangeNotifier {
-  // Display
+  // ── Display ────────────────────────────────────────────────────────────────
   double verseFontSize = 52;
   double refFontSize = 28;
   Color verseColor = Colors.white;
@@ -19,14 +19,29 @@ class AppSettings extends ChangeNotifier {
   bool showTranslation = true;
   bool showReference = true;
 
-  // Bible
+  // ── Bible ──────────────────────────────────────────────────────────────────
   String translation = 'kjv';
 
-  // Transcription panel
+  // ── Transcript ─────────────────────────────────────────────────────────────
   bool showTranscript = true;
   double transcriptOpacity = 0.7;
+
+  // ── Background image ───────────────────────────────────────────────────────
+  /// Original source — URL the user entered, or '' if they picked a local file.
   String outputBackgroundImageUrl = '';
 
+  /// Local cached copy of the background image.  Always prefer this over the
+  /// URL on the output screen so a dead link never breaks the display.
+  String localBackgroundImagePath = '';
+
+  // ── Output transition ──────────────────────────────────────────────────────
+  /// One of: 'crossfade' | 'slideUp' | 'fadeBlack'
+  String outputTransition = 'crossfade';
+
+  // ── Theme ──────────────────────────────────────────────────────────────────
+  ThemeMode themeMode = ThemeMode.system;
+
+  // ── Singleton ──────────────────────────────────────────────────────────────
   static AppSettings? _instance;
   static AppSettings get instance => _instance ??= AppSettings._();
   AppSettings._();
@@ -38,7 +53,9 @@ class AppSettings extends ChangeNotifier {
       final dir = await getApplicationDocumentsDirectory();
       _file = File(p.join(dir.path, 'bible_screens', 'settings.json'));
       if (await _file!.exists()) {
-        final json = jsonDecode(await _file!.readAsString());
+        final json =
+            jsonDecode(await _file!.readAsString()) as Map<String, dynamic>;
+
         verseFontSize = (json['verseFontSize'] ?? verseFontSize).toDouble();
         refFontSize = (json['refFontSize'] ?? refFontSize).toDouble();
         showTranslation = json['showTranslation'] ?? showTranslation;
@@ -47,11 +64,32 @@ class AppSettings extends ChangeNotifier {
         showTranscript = json['showTranscript'] ?? showTranscript;
         transcriptOpacity =
             (json['transcriptOpacity'] ?? transcriptOpacity).toDouble();
+        fontFamily = json['fontFamily'] ?? fontFamily;
         outputBackgroundImageUrl =
             json['outputBackgroundImageUrl'] ?? outputBackgroundImageUrl;
-        fontFamily = json['fontFamily'] ?? fontFamily;
-        if (json['bgColor'] != null) bgColor = Color(json['bgColor']);
-        if (json['verseColor'] != null) verseColor = Color(json['verseColor']);
+        localBackgroundImagePath =
+            json['localBackgroundImagePath'] ?? localBackgroundImagePath;
+        outputTransition = json['outputTransition'] ?? outputTransition;
+
+        if (json['bgColor'] != null) bgColor = Color(json['bgColor'] as int);
+        if (json['verseColor'] != null) {
+          verseColor = Color(json['verseColor'] as int);
+        }
+        if (json['refColor'] != null) refColor = Color(json['refColor'] as int);
+
+        final tm = json['themeMode'] as String?;
+        themeMode = switch (tm) {
+          'light' => ThemeMode.light,
+          'dark' => ThemeMode.dark,
+          _ => ThemeMode.system,
+        };
+
+        // Validate that the cached local image still exists
+        if (localBackgroundImagePath.isNotEmpty) {
+          if (!File(localBackgroundImagePath).existsSync()) {
+            localBackgroundImagePath = '';
+          }
+        }
       }
     } catch (_) {}
     notifyListeners();
@@ -59,6 +97,8 @@ class AppSettings extends ChangeNotifier {
 
   Future<void> save() async {
     try {
+      final dir = _file?.parent;
+      if (dir != null && !dir.existsSync()) dir.createSync(recursive: true);
       await _file?.writeAsString(jsonEncode({
         'verseFontSize': verseFontSize,
         'refFontSize': refFontSize,
@@ -68,9 +108,17 @@ class AppSettings extends ChangeNotifier {
         'showTranscript': showTranscript,
         'transcriptOpacity': transcriptOpacity,
         'outputBackgroundImageUrl': outputBackgroundImageUrl,
+        'localBackgroundImagePath': localBackgroundImagePath,
+        'outputTransition': outputTransition,
         'fontFamily': fontFamily,
         'bgColor': bgColor.toARGB32(),
         'verseColor': verseColor.toARGB32(),
+        'refColor': refColor.toARGB32(),
+        'themeMode': switch (themeMode) {
+          ThemeMode.light => 'light',
+          ThemeMode.dark => 'dark',
+          ThemeMode.system => 'system',
+        },
       }));
     } catch (_) {}
   }

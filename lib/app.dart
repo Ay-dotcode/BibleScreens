@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'core/theme/app_theme.dart';
+import 'models/app_settings.dart';
 import 'screens/home_screen.dart';
 import 'screens/output_display_screen.dart';
 
@@ -23,11 +24,19 @@ class BibleScreensApp extends StatelessWidget {
             uri.fragment.endsWith('/display'));
     final isDisplayWindow = forceDisplayMode || isWebDisplayWindow;
 
-    return MaterialApp(
-      title: 'Bible Screens',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.dark(),
-      home: isDisplayWindow ? const OutputDisplayScreen() : const HomeScreen(),
+    // Rebuild the MaterialApp whenever settings change so theme switches
+    // take effect immediately without a restart.
+    return AnimatedBuilder(
+      animation: AppSettings.instance,
+      builder: (context, _) => MaterialApp(
+        title: 'Bible Screens',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light(),
+        darkTheme: AppTheme.dark(),
+        themeMode: AppSettings.instance.themeMode,
+        home:
+            isDisplayWindow ? const OutputDisplayScreen() : const HomeScreen(),
+      ),
     );
   }
 }

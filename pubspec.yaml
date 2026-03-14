@@ -13,12 +13,21 @@ dependencies:
   # HTTP for Bible API (bible-api.com — free, no key required)
   http: ^1.2.0
 
-  # Local cache so verses load offline after first fetch
+  # Local cache / settings / images
   path_provider: ^2.1.2
   path: ^1.9.0
 
+  # Native file picker for local background image selection
+  file_picker: ^8.1.2
+
+  # Borderless output window (desktop only)
+  # ⚠ Windows setup: follow https://pub.dev/packages/window_manager#setup
+  window_manager: ^0.5.1
+
   # Icons
   cupertino_icons: ^1.0.6
+
+  # Platform interop
   web: ^1.1.1
   web_socket_channel: ^3.0.3
   record: ^6.2.0

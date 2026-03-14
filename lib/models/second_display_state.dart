@@ -12,6 +12,8 @@ class SecondDisplayState {
     required this.refFontSize,
     required this.fontFamily,
     required this.backgroundImageUrl,
+    required this.localBackgroundImagePath,
+    required this.transitionType,
   });
 
   final String verseText;
@@ -25,7 +27,15 @@ class SecondDisplayState {
   final double verseFontSize;
   final double refFontSize;
   final String fontFamily;
+  // ── Image ──────────────────────────────────────────────────────────────────
+  /// Original URL (kept for reference / re-download).
   final String backgroundImageUrl;
+
+  /// Locally cached copy — preferred over the URL on the output screen.
+  final String localBackgroundImagePath;
+  // ── Presentation ───────────────────────────────────────────────────────────
+  /// One of: 'crossfade' | 'slideUp' | 'fadeBlack'
+  final String transitionType;
 
   factory SecondDisplayState.empty({
     required int bgColor,
@@ -35,6 +45,8 @@ class SecondDisplayState {
     required double refFontSize,
     required String fontFamily,
     required String backgroundImageUrl,
+    String localBackgroundImagePath = '',
+    String transitionType = 'crossfade',
   }) {
     return SecondDisplayState(
       verseText: '',
@@ -49,6 +61,8 @@ class SecondDisplayState {
       refFontSize: refFontSize,
       fontFamily: fontFamily,
       backgroundImageUrl: backgroundImageUrl,
+      localBackgroundImagePath: localBackgroundImagePath,
+      transitionType: transitionType,
     );
   }
 
@@ -66,6 +80,8 @@ class SecondDisplayState {
       'refFontSize': refFontSize,
       'fontFamily': fontFamily,
       'backgroundImageUrl': backgroundImageUrl,
+      'localBackgroundImagePath': localBackgroundImagePath,
+      'transitionType': transitionType,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
     };
   }
@@ -84,6 +100,8 @@ class SecondDisplayState {
       refFontSize: (json['refFontSize'] ?? 28.0).toDouble(),
       fontFamily: json['fontFamily'] ?? 'Georgia',
       backgroundImageUrl: json['backgroundImageUrl'] ?? '',
+      localBackgroundImagePath: json['localBackgroundImagePath'] ?? '',
+      transitionType: json['transitionType'] ?? 'crossfade',
     );
   }
 }
