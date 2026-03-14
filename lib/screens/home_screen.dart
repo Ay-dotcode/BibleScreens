@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:record/record.dart';
 
 import '../models/app_settings.dart';
 import '../models/bible_verse.dart';
@@ -34,12 +35,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   VerseReference? _lastDetectedRef;
 
-  // Subscriptions
+  // ── Subscriptions ──────────────────────────────────────────────────────────
   StreamSubscription<String>? _transcriptSub;
   StreamSubscription<ListeningState>? _stateSub;
   StreamSubscription<String>? _errorSub;
+  StreamSubscription<double>? _audioLevelSub;
 
-  // Animation
+  // ── Microphone state ───────────────────────────────────────────────────────
+  List<InputDevice> _availableMics = [];
+  InputDevice? _selectedMic; // null = system default
+
+  // ── Audio level visualiser ─────────────────────────────────────────────────
+  double _audioLevel = 0.0;
+
+  // ── Animation ─────────────────────────────────────────────────────────────
   late AnimationController _fadeCtrl;
   late Animation<double> _fadeAnim;
   late AnimationController _pulseCtrl;
@@ -50,9 +59,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _initAnimations();
-    _settingsSyncListener = () {
-      _publishToSecondDisplay();
-    };
+    _settingsSyncListener = () => _publishToSecondDisplay();
     _settings.addListener(_settingsSyncListener);
     _initServices();
   }
@@ -77,19 +84,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _transcriptSub = _speech.transcriptStream.listen(_onTranscript);
     _stateSub = _speech.stateStream.listen(_onStateChange);
     _errorSub = _speech.errorStream.listen(_onSpeechError);
+    _audioLevelSub = _speech.audioLevelStream.listen(_onAudioLevel);
 
     final ok = await _speech.init();
     if (!ok && mounted) {
       setState(() => _statusMessage =
           '⚠ Speech recognition unavailable — see README for setup');
     }
+
+    // Enumerate microphones after init (permission should be granted by now).
+    final mics = await _speech.listMicrophones();
+    if (mounted) setState(() => _availableMics = mics);
   }
+
+  // ── Stream handlers ────────────────────────────────────────────────────────
 
   void _onTranscript(String text) {
     if (!mounted) return;
     setState(() => _transcript = text);
 
-    // Detect verse in the latest transcript
     final ref = VerseDetector.detect(text);
     if (ref != null && ref != _lastDetectedRef) {
       _lastDetectedRef = ref;
@@ -128,6 +141,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
   }
 
+  void _onAudioLevel(double level) {
+    if (!mounted) return;
+    setState(() => _audioLevel = level);
+  }
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+
   Future<void> _fetchAndDisplay(VerseReference ref) async {
     setState(() {
       _isLoading = true;
@@ -160,7 +180,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (_speech.state == ListeningState.listening) {
       await _speech.stopListening();
     } else {
-      _lastDetectedRef = null; // reset so same verse can re-trigger
+      _lastDetectedRef = null;
       await _speech.startListening();
     }
   }
@@ -261,10 +281,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     controller.dispose();
     if (value == null) return;
-
     _settings.update((s) => s.outputBackgroundImageUrl = value);
     await _publishToSecondDisplay();
   }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -285,18 +306,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             backgroundColor: _settings.bgColor,
             body: Stack(
               children: [
-                // ── Main verse display ──────────────────────────────────────────
                 _buildVerseDisplay(horizontalPadding),
-
-                // ── Top bar ─────────────────────────────────────────────────────
                 _buildTopBar(horizontalPadding),
-
-                // ── Bottom transcript panel ──────────────────────────────────────
                 if (_settings.showTranscript)
                   _buildTranscriptPanel(horizontalPadding),
-
-                // ── Error snackbar ───────────────────────────────────────────────
                 if (_errorMsg != null) _buildErrorBanner(horizontalPadding),
+                // Bottom-right audio visualiser — always in the tree so it
+                // fades smoothly; the widget handles its own visibility.
+                _buildAudioVisualizer(constraints),
               ],
             ),
           ),
@@ -304,6 +321,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       },
     );
   }
+
+  // ── Verse display ──────────────────────────────────────────────────────────
 
   Widget _buildVerseDisplay(double horizontalPadding) {
     final verticalPadding = _settings.showTranscript ? 110.0 : 80.0;
@@ -406,7 +425,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Decorative top line
                 Container(
                   width: 60,
                   height: 2,
@@ -415,14 +433,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       colors: [
                         Colors.transparent,
                         Colors.white.withValues(alpha: 0.3),
-                        Colors.transparent
+                        Colors.transparent,
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 32),
-
-                // Verse text
                 Text(
                   '"${_currentVerse!.text}"',
                   textAlign: TextAlign.center,
@@ -440,10 +456,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 32),
-
-                // Reference
                 if (_settings.showReference)
                   Wrap(
                     alignment: WrapAlignment.center,
@@ -489,7 +502,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           color: _settings.refColor.withValues(alpha: 0.4)),
                     ],
                   ),
-
                 const SizedBox(height: 32),
                 Container(
                   width: 60,
@@ -499,7 +511,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       colors: [
                         Colors.transparent,
                         Colors.white.withValues(alpha: 0.3),
-                        Colors.transparent
+                        Colors.transparent,
                       ],
                     ),
                   ),
@@ -511,6 +523,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     );
   }
+
+  // ── Top bar ────────────────────────────────────────────────────────────────
 
   Widget _buildTopBar(double horizontalPadding) {
     final isListening = _speech.state == ListeningState.listening;
@@ -547,7 +561,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
             const Spacer(),
 
-            // Status label
+            // Status pill
             AnimatedBuilder(
               animation: _pulseAnim,
               builder: (_, __) => Opacity(
@@ -594,7 +608,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
             ),
 
-            const SizedBox(width: 16),
+            const SizedBox(width: 12),
+
+            // ── Microphone selector ──────────────────────────────────────────
+            if (_availableMics.isNotEmpty) _buildMicSelector(),
+
+            const SizedBox(width: 4),
 
             // Clear button
             if (_currentVerse != null)
@@ -609,7 +628,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             _iconBtn(Icons.image_rounded, 'Output background image',
                 _changeOutputBackgroundImage),
 
-            // Mic button
+            // Mic toggle button
             _micButton(isListening),
 
             // Settings button
@@ -620,6 +639,144 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ],
         ),
       ),
+    );
+  }
+
+  // ── Bottom-right audio visualiser panel ───────────────────────────────────
+
+  /// A narrow tall VU meter pinned to the bottom-right, ~1/3 screen height.
+  Widget _buildAudioVisualizer(BoxConstraints screenConstraints) {
+    final panelHeight = screenConstraints.maxHeight / 3;
+
+    // Meter is 22 px wide. Give it 12 px breathing room from the screen edge.
+    const meterWidth = 22.0;
+
+    return Positioned(
+      bottom: 20,
+      right: 36,
+      width: meterWidth,
+      height: panelHeight,
+      child: AnimatedOpacity(
+        opacity: 1.0,
+        duration: const Duration(milliseconds: 400),
+        child: IgnorePointer(
+          child: _VerticalAudioVisualizer(
+            level: _audioLevel,
+            totalHeight: panelHeight,
+            meterWidth: meterWidth,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Compact mic-selector dropdown that lives directly in the top bar.
+  Widget _buildMicSelector() {
+    // Truncate long device names for the button label.
+    String label(InputDevice? mic) {
+      if (mic == null) return 'Default';
+      final name = mic.label;
+      return name.length > 22 ? '${name.substring(0, 20)}…' : name;
+    }
+
+    return Tooltip(
+      message: 'Select microphone',
+      child: Container(
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<InputDevice?>(
+            value: _selectedMic,
+            isDense: true,
+            dropdownColor: const Color(0xFF1A1A2E),
+            borderRadius: BorderRadius.circular(8),
+            icon: Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 16,
+              color: Colors.white.withValues(alpha: 0.35),
+            ),
+            // Current selection display
+            selectedItemBuilder: (_) => [
+              // "null" = default
+              _micDropdownLabel(Icons.mic_rounded, label(null)),
+              // one entry per real device
+              ..._availableMics.map(
+                  (mic) => _micDropdownLabel(Icons.mic_rounded, label(mic))),
+            ],
+            // Menu items
+            items: [
+              DropdownMenuItem<InputDevice?>(
+                value: null,
+                child: _micMenuItem('Default (system)',
+                    isSelected: _selectedMic == null),
+              ),
+              ..._availableMics.map(
+                (mic) => DropdownMenuItem<InputDevice?>(
+                  value: mic,
+                  child: _micMenuItem(
+                    mic.label,
+                    isSelected: _selectedMic?.id == mic.id,
+                  ),
+                ),
+              ),
+            ],
+            onChanged: (mic) {
+              setState(() => _selectedMic = mic);
+              _speech.setMicrophone(mic);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The compact label shown inside the dropdown button when collapsed.
+  Widget _micDropdownLabel(IconData icon, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: Colors.white.withValues(alpha: 0.4)),
+        const SizedBox(width: 5),
+        Text(
+          text,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.55),
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// A single menu item in the expanded dropdown.
+  Widget _micMenuItem(String label, {required bool isSelected}) {
+    return Row(
+      children: [
+        Icon(
+          isSelected ? Icons.check_rounded : Icons.mic_none_rounded,
+          size: 16,
+          color: isSelected
+              ? Colors.green.withValues(alpha: 0.8)
+              : Colors.white.withValues(alpha: 0.3),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.75),
+              fontSize: 13,
+              fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -672,6 +829,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
     );
   }
+
+  // ── Transcript panel ───────────────────────────────────────────────────────
 
   Widget _buildTranscriptPanel(double horizontalPadding) {
     return Positioned(
@@ -731,6 +890,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ── Error banner ───────────────────────────────────────────────────────────
+
   Widget _buildErrorBanner(double horizontalPadding) {
     return Positioned(
       bottom: _settings.showTranscript ? 100 : 20,
@@ -762,16 +923,87 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ── Dispose ────────────────────────────────────────────────────────────────
+
   @override
   void dispose() {
     _settings.removeListener(_settingsSyncListener);
     _transcriptSub?.cancel();
     _stateSub?.cancel();
     _errorSub?.cancel();
-    _speech.dispose();
+    _audioLevelSub?.cancel();
+    _speech
+        .dispose(); // async fire-and-forget is fine here — streams are guarded
     _displayBridge.dispose();
     _fadeCtrl.dispose();
     _pulseCtrl.dispose();
     super.dispose();
+  }
+}
+
+// ── Vertical mixer-style level meter ──────────────────────────────────────
+
+/// A single column of horizontal segments that light up from the bottom,
+/// exactly like a channel-strip VU meter on an audio mixer.
+class _VerticalAudioVisualizer extends StatelessWidget {
+  const _VerticalAudioVisualizer({
+    required this.level,
+    required this.totalHeight,
+    required this.meterWidth,
+  });
+
+  final double level;
+  final double totalHeight;
+  final double meterWidth;
+
+  static const int _segmentCount = 30;
+  static const double _gap = 2.5;
+
+  static Color _segmentColor(double fractionFromBottom, bool lit) {
+    final Color base;
+    if (fractionFromBottom > 0.85) {
+      base = const Color(0xFFFF3B30); // red  — peak
+    } else if (fractionFromBottom > 0.65) {
+      base = const Color(0xFFFFCC00); // amber — caution
+    } else {
+      base = const Color(0xFF30D158); // green — nominal
+    }
+    return lit ? base : base.withValues(alpha: 0.10);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final litCount = (level * _segmentCount).round().clamp(0, _segmentCount);
+
+    // Divide total height evenly across segments + gaps.
+    final segmentH =
+        ((totalHeight - _gap * (_segmentCount - 1)) / _segmentCount)
+            .clamp(2.0, double.infinity);
+
+    return SizedBox(
+      width: meterWidth,
+      height: totalHeight,
+      child: Column(
+        // Build top→bottom; segments lit from the bottom up.
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: List.generate(_segmentCount, (i) {
+          final fractionFromBottom = 1.0 - i / (_segmentCount - 1);
+          final rankFromBottom = _segmentCount - 1 - i;
+          final lit = rankFromBottom < litCount;
+
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 60),
+            curve: Curves.easeOut,
+            width: meterWidth,
+            height: segmentH,
+            decoration: BoxDecoration(
+              color: _segmentColor(fractionFromBottom, lit),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          );
+        }),
+      ),
+    );
   }
 }
