@@ -70,12 +70,24 @@ class SecondDisplayBridge {
     }
 
     final executable = Platform.resolvedExecutable;
+    final workingDirectory = File(executable).parent.path;
+
     try {
-      await Process.start(
-        executable,
-        const ['--display-window'],
-        mode: ProcessStartMode.detached,
-      );
+      if (Platform.isWindows) {
+        await Process.start(
+          'cmd',
+          ['/c', 'start', '', executable, '--display-window'],
+          workingDirectory: workingDirectory,
+          mode: ProcessStartMode.detached,
+        );
+      } else {
+        await Process.start(
+          executable,
+          const ['--display-window'],
+          workingDirectory: workingDirectory,
+          mode: ProcessStartMode.detached,
+        );
+      }
     } on ProcessException catch (error) {
       throw StateError(
         'Could not open second display window: ${error.message}',
