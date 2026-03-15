@@ -9,6 +9,13 @@ import 'package:path_provider/path_provider.dart';
 import '../utils/color_compat.dart';
 
 class AppSettings extends ChangeNotifier {
+  static const Color _lightOutputBg = Color(0xFFF3F4F8);
+  static const Color _lightOutputVerse = Color(0xFF141722);
+  static const Color _lightOutputRef = Color(0xFF4F5C74);
+  static const Color _darkOutputBg = Color(0xFF0A0A14);
+  static const Color _darkOutputVerse = Colors.white;
+  static const Color _darkOutputRef = Color(0xFFB0BEC5);
+
   // ── Display ────────────────────────────────────────────────────────────────
   double verseFontSize = 52;
   double refFontSize = 28;
@@ -127,5 +134,32 @@ class AppSettings extends ChangeNotifier {
     fn(this);
     notifyListeners();
     save();
+  }
+
+  void applyThemeMode(
+    ThemeMode mode, {
+    required Brightness platformBrightness,
+    bool syncOutputPalette = true,
+  }) {
+    themeMode = mode;
+
+    if (syncOutputPalette) {
+      final effectiveBrightness = switch (mode) {
+        ThemeMode.light => Brightness.light,
+        ThemeMode.dark => Brightness.dark,
+        ThemeMode.system => platformBrightness,
+      };
+      _applyOutputPaletteForBrightness(effectiveBrightness);
+    }
+
+    notifyListeners();
+    save();
+  }
+
+  void _applyOutputPaletteForBrightness(Brightness brightness) {
+    final isDark = brightness == Brightness.dark;
+    bgColor = isDark ? _darkOutputBg : _lightOutputBg;
+    verseColor = isDark ? _darkOutputVerse : _lightOutputVerse;
+    refColor = isDark ? _darkOutputRef : _lightOutputRef;
   }
 }
