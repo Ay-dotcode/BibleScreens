@@ -1,157 +1,198 @@
 # Bible Screens
 
-Human-free church worship display built with Flutter.
+Church presentation app built with Flutter.
 
-The app listens for spoken Bible references (for example, `John 3:16`), detects the verse reference, fetches the verse text, and pushes it to a clean output display window for projection.
+Bible Screens listens for spoken Bible references (for example, `John 3:16`), detects the reference in realtime, fetches verse text, and sends output to a dedicated display window for projection.
 
-## Features
+## What it does
 
-- Live speech-to-text using Deepgram (WebSocket streaming)
-- Automatic Bible verse detection from transcript text
-- Manual verse search and instant push to output
-- Verse queue and quick history controls
-- Lyrics mode (split text into slides and push to output)
-- Second display / projector output mode
-- Customizable output style:
-  - Theme mode (light/dark/system)
-  - Font family and font sizes
-  - Verse transition animation
-  - Background image from local file or URL
+- Live speech transcription (Deepgram over WebSocket)
+- Automatic Bible reference detection from transcript text
+- Manual verse search with queue + push controls
+- Song search from bundled EasyWorship-style SQLite databases
+- Lyrics slide push to output display
+- Dedicated output window mode for second display / projector
+- Output customization (theme, fonts, transition, background image)
 - Translation selection (`KJV`, `WEB`, `ASV`, `BBE`, `DARBY`, `DRA`, `YLT`)
-- Offline-friendly verse cache (local JSON cache)
-- Optional full translation preload for offline use
+- Local verse caching and optional translation preload
 
-## Tech Stack
+## Requirements
 
-- Flutter (desktop + web capable)
+- Flutter SDK installed
 - Dart SDK `>=3.2.0 <4.0.0`
-- `record` for microphone capture
-- `web_socket_channel` for Deepgram realtime transcription
-- `http` for bible-api.com verse fetching
-- `window_manager` for desktop display window behavior
-- `path_provider`, `path`, `file_picker` for local file/cache handling
+- A supported target (Windows, Linux, macOS, or Web)
+- Microphone permission enabled on the host OS
 
-## Getting Started
+## Quick start
 
-### 1. Prerequisites
-
-- Flutter SDK installed and configured
-- A desktop target enabled (Linux/Windows/macOS) for projector workflows
-- Microphone permission enabled for the app
-
-### 2. Install dependencies
+1. Install dependencies:
 
 ```bash
 flutter pub get
 ```
 
-### 3. Run the control app
+2. Run the control app (example: Windows):
 
 ```bash
-flutter run -d linux -t lib/main.dart
+flutter run -d windows -t lib/main.dart
 ```
 
-Replace `linux` with your target device when needed.
+Replace `windows` with your preferred device (`linux`, `macos`, `chrome`, etc.).
 
-## Running Display Window Mode
+## Display window mode
 
-The app supports a dedicated output-only window.
+### Desktop
 
-### Desktop output window
-
-Run a second instance with display arguments:
+Run a second instance in display-only mode:
 
 ```bash
-flutter run -d linux -t lib/main.dart --dart-entrypoint-args=--display-window
+flutter run -d windows -t lib/main.dart --dart-entrypoint-args=--display-window
 ```
 
-You can also use `--display` as the argument value.
+`--display` is also supported.
 
-### Web output mode
+### Web
 
-Open the app with one of these URL forms:
+Open any of these routes/URL patterns:
 
 - `?display=1`
 - `/display`
 - `#display=1`
 
-## Keyboard Shortcuts (Control Screen)
+## Keyboard shortcuts (control screen)
 
-- `F5`: Start/stop listening
-- `Space`: Push next queued item (or current search result)
-- `Esc`: Clear live output
-- `Ctrl+F`: Focus verse search
-- `ArrowDown`: Push first queued verse
+- `F5`: start / stop listening
+- `Space`: push next queued item (or current search result)
+- `Esc`: clear live output
+- `Ctrl+F`: focus verse search
+- `ArrowDown`: push first queued verse
 
-## Configuration Notes
+## Speech configuration + API key
 
-- Speech transcription currently uses Deepgram (`nova-3`) in `lib/services/speech_service.dart`.
-- Bible verses are fetched from `https://bible-api.com` and cached locally by `BibleService`.
-- Output state is bridged to the display window through `SecondDisplayBridge`.
+Speech streaming is implemented in `lib/services/speech_service.dart` and currently targets Deepgram `nova-3`.
 
-## Project Structure
+Deepgram is authenticated using `_apiKey` in that file.
+
+### Set or change the key
+
+1. Open `lib/services/speech_service.dart`
+2. Find:
+
+   ```dart
+   static const String _apiKey = 'YOUR_DEEPGRAM_API_KEY';
+   ```
+
+3. Replace with your Deepgram key.
+
+For production, do not commit API keys in source. Use secure runtime configuration instead.
+
+## Data + services
+
+- Bible text source: `https://bible-api.com`
+- Verse detection/parser: `lib/services/verse_detector.dart`
+- Display sync bridge: `lib/services/second_display_bridge.dart`
+- Song library: `assets/databases/*.db` via `lib/services/song_db_service.dart`
+
+## Full project structure
 
 ```text
 bible_screens/
-├── .github/
-│   └── workflows/
+├── analysis_options.yaml
+├── pubspec.yaml
+├── README.md
+├── settings.json
+├── android/
+│   ├── build.gradle.kts
+│   ├── gradle.properties
+│   ├── local.properties
+│   ├── settings.gradle.kts
+│   ├── app/
+│   │   ├── build.gradle.kts
+│   │   └── src/
+│   └── gradle/
+│       └── wrapper/
+├── assets/
+│   └── databases/
+│       ├── Songs.db
+│       ├── SongWords.db
+│       └── SongHistory.db
+├── build/
+│   ├── flutter_assets/
+│   ├── native_assets/
+│   ├── native_hooks/
+│   ├── windows/
+│   └── ...
+├── ios/
+│   ├── Flutter/
+│   ├── Runner/
+│   ├── Runner.xcodeproj/
+│   ├── Runner.xcworkspace/
+│   └── RunnerTests/
 ├── lib/
-│   ├── main.dart                      # App entrypoint and window mode bootstrapping
-│   ├── app.dart                       # MaterialApp and display/control routing
-│   ├── pubspec.lock
+│   ├── app.dart
+│   ├── main.dart
 │   ├── core/
-│   │   └── theme/                     # Theme definitions
-│   │       └── app_theme.dart
+│   │   └── theme/
 │   ├── models/
-│   │   ├── app_settings.dart          # Persisted user settings and output styling
-│   │   ├── bible_verse.dart           # Verse/reference data model
-│   │   └── second_display_state.dart  # State payload for output display
+│   │   ├── app_settings.dart
+│   │   ├── bible_verse.dart
+│   │   ├── second_display_state.dart
+│   │   └── song.dart
 │   ├── screens/
-│   │   ├── home_screen.dart           # Main control UI (speech, queue, lyrics)
-│   │   ├── output_display_screen.dart # Projector/second-display render surface
-│   │   └── settings_screen.dart       # App + output customization settings
+│   │   ├── home_screen.dart
+│   │   ├── output_display_screen.dart
+│   │   ├── settings_screen.dart
+│   │   └── song_search_screen.dart
 │   ├── services/
-│   │   ├── bible_service.dart         # Bible API calls, local cache, offline preload
-│   │   ├── image_service.dart         # Background image picker/download/cache
-│   │   ├── speech_service.dart        # Mic capture + Deepgram WebSocket streaming
-│   │   ├── verse_detector.dart        # Reference parser from transcript/search input
-│   │   ├── second_display_bridge.dart # Platform bridge export (io/web/stub)
+│   │   ├── bible_service.dart
+│   │   ├── image_service.dart
+│   │   ├── second_display_bridge.dart
 │   │   ├── second_display_bridge_io.dart
+│   │   ├── second_display_bridge_stub.dart
 │   │   ├── second_display_bridge_web.dart
-│   │   └── second_display_bridge_stub.dart
+│   │   ├── song_db_service.dart
+│   │   ├── speech_service.dart
+│   │   └── verse_detector.dart
 │   └── utils/
-│       ├── bible_books.dart           # Book aliases and API-safe path mapping
-│       ├── bible_chapters.dart        # Canonical chapter counts for preload
-│       ├── number_words.dart          # Number-word normalization helpers
-│       └── color_compat.dart          # Cross-version color helpers
+│       ├── bible_books.dart
+│       ├── bible_chapters.dart
+│       ├── color_compat.dart
+│       ├── number_words.dart
+│       └── rtf_parser.dart
+├── linux/
+│   ├── CMakeLists.txt
+│   ├── flutter/
+│   └── runner/
+├── macos/
+│   ├── Flutter/
+│   ├── Runner/
+│   ├── Runner.xcodeproj/
+│   ├── Runner.xcworkspace/
+│   └── RunnerTests/
 ├── test/
 │   ├── widget_test.dart
 │   └── services/
-│       └── verse_detector_test.dart
-├── android/                           # Android host project
-├── ios/                               # iOS host project
-├── linux/                             # Linux host project
-├── macos/                             # macOS host project
-├── windows/                           # Windows host project
-├── web/                               # Web host assets
 ├── third_party/
 │   └── speech_to_text_windows/
-├── settings.json
-├── pubspec.yaml                       # Dependencies and package metadata
-├── pubspec.lock
-├── analysis_options.yaml              # Lint rules
-└── README.md
+├── web/
+│   ├── index.html
+│   ├── manifest.json
+│   └── icons/
+└── windows/
+	├── CMakeLists.txt
+	├── flutter/
+	└── runner/
 ```
 
-## Development Commands
+## Development
 
 ```bash
 flutter analyze
 flutter test
 ```
 
-## Known Notes
+## Notes
 
-- Network is required for first-time verse fetches unless the verse/chapter was already cached.
-- Offline preload may take time depending on translation size and internet speed.
-- Desktop second-display behavior depends on platform window manager support.
+- First-time verse requests require network unless the verse is already cached.
+- Translation preload can take time depending on translation size and connection speed.
+- Desktop second-display behavior can vary by platform/window manager.

@@ -16,6 +16,7 @@ import '../services/verse_detector.dart';
 // ignore: unused_import
 import '../utils/color_compat.dart';
 import 'settings_screen.dart';
+import 'song_search_screen.dart';
 
 // ── Local data types ───────────────────────────────────────────────────────
 
@@ -90,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this);
+    _tabCtrl = TabController(length: 3, vsync: this); // ← was 2
 
     _pulseCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1200))
@@ -241,7 +242,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void _pushLive(BibleVerse verse) {
     setState(() {
       _currentVerse = verse;
-      // Add to history (front, cap at _maxHistory)
       _history.insert(0, _HistoryEntry(verse));
       if (_history.length > _maxHistory) _history.removeLast();
     });
@@ -264,6 +264,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _searchResult = null;
     });
     _publishToSecondDisplay();
+  }
+
+  // ── Push a plain text slide (used by SongSearchScreen) ────────────────────
+
+  void _pushTextSlide(String text) {
+    _pushLive(BibleVerse(
+      reference: const VerseReference(book: '', chapter: 0, verse: 0),
+      text: text,
+      translation: '',
+    ));
   }
 
   // ── Queue ──────────────────────────────────────────────────────────────────
@@ -375,14 +385,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _currentLyricsSlide >= _lyricsSlides.length) {
       return;
     }
-    final text = _lyricsSlides[_currentLyricsSlide];
-    // Use chapter=0 as sentinel for "lyrics, no reference"
-    final verse = BibleVerse(
-      reference: const VerseReference(book: '', chapter: 0, verse: 0),
-      text: text,
-      translation: '',
-    );
-    _pushLive(verse);
+    _pushTextSlide(_lyricsSlides[_currentLyricsSlide]);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -474,10 +477,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // ── Left panel ─────────────────────────────────────────
                   Expanded(flex: 55, child: _buildLeftPanel(theme, isDark)),
                   Container(width: 1, color: theme.dividerColor),
-                  // ── Right panel ────────────────────────────────────────
                   Expanded(flex: 45, child: _buildRightPanel(theme)),
                 ],
               ),
@@ -504,7 +505,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
       child: Row(
         children: [
-          // App name
           Text('Church Display',
               style: TextStyle(
                   fontSize: 14,
@@ -512,8 +512,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   fontWeight: FontWeight.w300,
                   color: theme.textTheme.bodySmall?.color)),
           const SizedBox(width: 16),
-
-          // Status pill
           AnimatedBuilder(
             animation: _pulseAnim,
             builder: (_, __) => Opacity(
@@ -554,18 +552,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
             ),
           ),
-
           const Spacer(),
-
-          // Hotkey hints
           _hotkeyHint('Space', 'Push queue'),
           _hotkeyHint('Esc', 'Clear'),
           _hotkeyHint('F5', 'Mic'),
           _hotkeyHint('Ctrl+F', 'Search'),
-
           const SizedBox(width: 8),
-
-          // Theme toggle
           Tooltip(
             message: isDark ? 'Switch to light mode' : 'Switch to dark mode',
             child: IconButton(
@@ -579,8 +571,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               },
             ),
           ),
-
-          // Settings
           Tooltip(
             message: 'Settings',
             child: IconButton(
@@ -623,13 +613,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget _buildLeftPanel(ThemeData theme, bool isDark) {
     return Column(
       children: [
-        // ── Live output preview (fills most of the panel) ──────────────────
         Expanded(flex: 5, child: _buildLivePreview(theme, isDark)),
         Container(height: 1, color: theme.dividerColor),
-        // ── Transcript ─────────────────────────────────────────────────────
         _buildTranscriptStrip(theme),
         Container(height: 1, color: theme.dividerColor),
-        // ── Mic controls ───────────────────────────────────────────────────
         _buildMicControls(theme),
       ],
     );
@@ -648,7 +635,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     return Stack(
       children: [
-        // Background
         Positioned.fill(child: Container(color: previewBg)),
         if (hasLocalImg)
           Positioned.fill(
@@ -661,8 +647,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         if (hasLocalImg)
           Positioned.fill(
               child: Container(color: previewBg.withValues(alpha: 0.5))),
-
-        // Content (animated switch on verse change)
         Center(
           child: Padding(
             padding: const EdgeInsets.all(28),
@@ -716,8 +700,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ),
         ),
-
-        // "LIVE" badge
         if (hasContent)
           Positioned(
             top: 10,
@@ -740,8 +722,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ]),
             ),
           ),
-
-        // Action buttons overlay (top-right)
         Positioned(
           top: 8,
           right: 8,
@@ -756,8 +736,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ],
           ),
         ),
-
-        // Label
         Positioned(
           bottom: 8,
           left: 10,
@@ -844,7 +822,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       color: theme.cardColor,
       child: Row(
         children: [
-          // Mic toggle button
           Tooltip(
             message:
                 isListening ? 'Stop listening (F5)' : 'Start listening (F5)',
@@ -872,20 +849,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ),
             ),
           ),
-
           const SizedBox(width: 10),
-
-          // Compact VU meter
           _CompactAudioMeter(level: _audioLevel),
-
           const SizedBox(width: 10),
-
-          // Mic selector
           if (_availableMics.isNotEmpty) _buildMicDropdown(theme),
-
           const Spacer(),
-
-          // Clear all button
           Tooltip(
             message: 'Clear transcript and output',
             child: IconButton(
@@ -978,7 +946,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget _buildRightPanel(ThemeData theme) {
     return Column(
       children: [
-        // Tab bar
         Container(
           color: theme.cardColor,
           child: TabBar(
@@ -988,6 +955,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               Tab(
                   icon: Icon(Icons.music_note_rounded, size: 16),
                   text: 'Lyrics'),
+              Tab(
+                  icon: Icon(Icons.library_music_rounded, size: 16),
+                  text: 'Songs'), // ← new
             ],
           ),
         ),
@@ -997,6 +967,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             children: [
               _buildBibleTab(theme),
               _buildLyricsTab(theme),
+              SongSearchScreen(onSlidePush: _pushTextSlide), // ← new
             ],
           ),
         ),
@@ -1012,7 +983,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
-        // ── Search ──────────────────────────────────────────────────────────
         _sectionHeader('Search (Ctrl+F)', theme),
         const SizedBox(height: 6),
         Row(children: [
@@ -1047,15 +1017,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 : const Icon(Icons.arrow_forward_rounded, size: 18),
           ),
         ]),
-
-        // Search error
         if (_searchError != null) ...[
           const SizedBox(height: 6),
           Text(_searchError!,
               style: const TextStyle(color: Colors.red, fontSize: 12)),
         ],
-
-        // Search result
         if (_searchResult != null) ...[
           const SizedBox(height: 10),
           _verseCard(
@@ -1070,10 +1036,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             },
           ),
         ],
-
         const SizedBox(height: 16),
-
-        // ── Queue ────────────────────────────────────────────────────────────
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           _sectionHeader('Queue (${_queue.length})', theme),
           if (_queue.isNotEmpty)
@@ -1087,7 +1050,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
         ]),
         const SizedBox(height: 6),
-
         if (_queue.isEmpty)
           _emptyHint(
               'Add verses from search or history.\nSpace = push top item.',
@@ -1095,13 +1057,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         else
           ...List.generate(
               _queue.length, (i) => _queueItem(_queue[i], i, theme)),
-
         const SizedBox(height: 16),
-
-        // ── History ───────────────────────────────────────────────────────────
         _sectionHeader('History (${_history.length})', theme),
         const SizedBox(height: 6),
-
         if (_history.isEmpty)
           _emptyHint('Verses sent to the output will appear here.', theme)
         else
@@ -1210,7 +1168,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ),
           const SizedBox(width: 4),
-          // Controls
           _iconAction(Icons.arrow_upward_rounded, () => _moveQueueUp(i), theme,
               tooltip: 'Move up'),
           _iconAction(
@@ -1281,7 +1238,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget _buildLyricsTab(ThemeData theme) {
     return Column(
       children: [
-        // Editor area
         Expanded(
           flex: 2,
           child: Padding(
@@ -1334,10 +1290,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ),
         ),
-
         Container(height: 1, color: theme.dividerColor),
-
-        // Slides navigator
         Expanded(
           flex: 3,
           child: _lyricsSlides.isEmpty
@@ -1349,7 +1302,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                           fontSize: 13)))
               : Column(
                   children: [
-                    // Current slide preview
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.all(14),
@@ -1369,7 +1321,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                               ],
                             ),
                             const SizedBox(height: 8),
-                            // Preview of current slide
                             if (_currentLyricsSlide >= 0)
                               Container(
                                 width: double.infinity,
@@ -1390,7 +1341,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                 ),
                               ),
                             const SizedBox(height: 10),
-                            // Navigation row
                             Row(children: [
                               IconButton.outlined(
                                 onPressed: _currentLyricsSlide > 0
@@ -1424,10 +1374,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         ),
                       ),
                     ),
-
                     Container(height: 1, color: theme.dividerColor),
-
-                    // Slide list
                     Expanded(
                       child: ListView.builder(
                         padding: const EdgeInsets.symmetric(
