@@ -13,10 +13,10 @@ The app listens for spoken Bible references (for example, `John 3:16`), detects 
 - Lyrics mode (split text into slides and push to output)
 - Second display / projector output mode
 - Customizable output style:
-	- Theme mode (light/dark/system)
-	- Font family and font sizes
-	- Verse transition animation
-	- Background image from local file or URL
+  - Theme mode (light/dark/system)
+  - Font family and font sizes
+  - Verse transition animation
+  - Background image from local file or URL
 - Translation selection (`KJV`, `WEB`, `ASV`, `BBE`, `DARBY`, `DRA`, `YLT`)
 - Offline-friendly verse cache (local JSON cache)
 - Optional full translation preload for offline use
@@ -93,11 +93,15 @@ Open the app with one of these URL forms:
 
 ```text
 bible_screens/
+├── .github/
+│   └── workflows/
 ├── lib/
 │   ├── main.dart                      # App entrypoint and window mode bootstrapping
 │   ├── app.dart                       # MaterialApp and display/control routing
+│   ├── pubspec.lock
 │   ├── core/
 │   │   └── theme/                     # Theme definitions
+│   │       └── app_theme.dart
 │   ├── models/
 │   │   ├── app_settings.dart          # Persisted user settings and output styling
 │   │   ├── bible_verse.dart           # Verse/reference data model
@@ -123,13 +127,18 @@ bible_screens/
 ├── test/
 │   ├── widget_test.dart
 │   └── services/
+│       └── verse_detector_test.dart
 ├── android/                           # Android host project
 ├── ios/                               # iOS host project
 ├── linux/                             # Linux host project
 ├── macos/                             # macOS host project
 ├── windows/                           # Windows host project
 ├── web/                               # Web host assets
+├── third_party/
+│   └── speech_to_text_windows/
+├── settings.json
 ├── pubspec.yaml                       # Dependencies and package metadata
+├── pubspec.lock
 ├── analysis_options.yaml              # Lint rules
 └── README.md
 ```
