@@ -134,8 +134,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   label: Text('Dark')),
             ],
             selected: {_settings.themeMode},
-            onSelectionChanged: (s) =>
-                _settings.update((st) => st.themeMode = s.first),
+            onSelectionChanged: (s) => _settings.applyThemeMode(
+              s.first,
+              platformBrightness: MediaQuery.platformBrightnessOf(context),
+            ),
             style: const ButtonStyle(
               visualDensity: VisualDensity.compact,
             ),

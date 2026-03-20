@@ -69,7 +69,7 @@ class SecondDisplayBridge {
       return;
     }
 
-    final executable = Platform.resolvedExecutable;
+    final executable = await _resolveCurrentExecutable();
     final workingDirectory = File(executable).parent.path;
 
     try {
@@ -85,6 +85,7 @@ class SecondDisplayBridge {
           executable,
           const ['--display-window'],
           workingDirectory: workingDirectory,
+          environment: Platform.environment,
           mode: ProcessStartMode.detached,
         );
       }
@@ -93,6 +94,22 @@ class SecondDisplayBridge {
         'Could not open second display window: ${error.message}',
       );
     }
+  }
+
+  Future<String> _resolveCurrentExecutable() async {
+    // On Linux desktop, Platform.resolvedExecutable may point to a runtime
+    // launcher. /proc/self/exe reliably resolves to the actual app binary.
+    if (Platform.isLinux) {
+      final selfExe = File('/proc/self/exe');
+      if (await selfExe.exists()) {
+        try {
+          return await selfExe.resolveSymbolicLinks();
+        } catch (_) {
+          // Fallback below.
+        }
+      }
+    }
+    return Platform.resolvedExecutable;
   }
 
   Future<void> publish(SecondDisplayState state) async {

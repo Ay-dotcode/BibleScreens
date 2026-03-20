@@ -371,7 +371,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _pushLyricsSlide() {
-    if (_currentLyricsSlide < 0 || _currentLyricsSlide >= _lyricsSlides.length) {
+    if (_currentLyricsSlide < 0 ||
+        _currentLyricsSlide >= _lyricsSlides.length) {
       return;
     }
     final text = _lyricsSlides[_currentLyricsSlide];
@@ -571,8 +572,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               icon: Icon(
                   isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded),
               onPressed: () {
-                _settings.update((s) =>
-                    s.themeMode = isDark ? ThemeMode.light : ThemeMode.dark);
+                _settings.applyThemeMode(
+                  isDark ? ThemeMode.light : ThemeMode.dark,
+                  platformBrightness: MediaQuery.platformBrightnessOf(context),
+                );
               },
             ),
           ),
