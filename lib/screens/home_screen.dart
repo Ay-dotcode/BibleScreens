@@ -46,7 +46,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   BibleVerse? _currentVerse;
   String _transcript = '';
   String _statusMessage = 'Press the mic to start listening';
-  VerseReference? _lastDetectedRef;
+
+  // ── Intent deduplication ───────────────────────────────────────────────────
+  String _lastIntentKey = '';
+
+  // ── Live verse range (auto-detected from speech) ───────────────────────────
+  // When a range like "Genesis 1:2-5" is detected, all verses are loaded here.
+  // The display auto-advances through them as the preacher reads.
+  List<BibleVerse> _liveRange = [];
+  int _liveRangeIndex = 0;
+
+  // Transcript accumulated since the current verse was pushed to the display.
+  // Used for auto-advance word matching.
+  String _transcriptSincePush = '';
 
   // ── Queue & history ────────────────────────────────────────────────────────
   final List<BibleVerse> _queue = [];
@@ -87,6 +99,84 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // ── Tabs ───────────────────────────────────────────────────────────────────
   late TabController _tabCtrl;
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Stopwords for auto-advance word matching
+  // ─────────────────────────────────────────────────────────────────────────
+
+  static const _stopwords = {
+    'the',
+    'a',
+    'an',
+    'and',
+    'or',
+    'but',
+    'in',
+    'on',
+    'at',
+    'to',
+    'for',
+    'of',
+    'with',
+    'is',
+    'was',
+    'are',
+    'were',
+    'be',
+    'been',
+    'being',
+    'have',
+    'has',
+    'had',
+    'do',
+    'does',
+    'did',
+    'will',
+    'would',
+    'could',
+    'should',
+    'may',
+    'might',
+    'shall',
+    'can',
+    'that',
+    'this',
+    'it',
+    'he',
+    'she',
+    'they',
+    'we',
+    'you',
+    'i',
+    'his',
+    'her',
+    'their',
+    'our',
+    'your',
+    'my',
+    'its',
+    'not',
+    'no',
+    'so',
+    'if',
+    'as',
+    'by',
+    'up',
+    'out',
+    'then',
+    'than',
+    'also',
+    'into',
+    'from',
+    'upon',
+  };
+
+  Set<String> _significantWords(String text) => text
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z\s]'), ' ')
+      .split(RegExp(r'\s+'))
+      .where((w) => w.length > 2 && !_stopwords.contains(w))
+      .toSet();
 
   // ─────────────────────────────────────────────────────────────────────────
   // Lifecycle
@@ -160,13 +250,57 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   void _onTranscript(String text) {
     if (!mounted) return;
-    setState(() => _transcript = text);
-    final ref = VerseDetector.detect(text);
-    if (ref != null && ref != _lastDetectedRef) {
-      _lastDetectedRef = ref;
-      _autoFetchAndDisplay(ref);
+    setState(() {
+      _transcript = text;
+      _transcriptSincePush = '$_transcriptSincePush $text';
+    });
+
+    final intent = VerseDetector.detectIntent(
+      text,
+      inVerseMode: _currentVerse != null,
+    );
+
+    if (intent == null) {
+      _checkAutoAdvance();
+      return;
+    }
+
+    final key = _intentKey(intent);
+
+    // Always process navigation (preacher may say "next" multiple times)
+    final isNav = intent is NavigationIntent;
+    if (!isNav && key == _lastIntentKey) {
+      _checkAutoAdvance();
+      return;
+    }
+    _lastIntentKey = key;
+
+    switch (intent) {
+      case VerseIntent(:final ref):
+        _liveRange = [];
+        _liveRangeIndex = 0;
+        _autoFetchAndDisplay(ref);
+
+      case VerseRangeIntent(:final start, :final endVerse):
+        _autoFetchRangeAndDisplay(start, endVerse);
+
+      case NavigationIntent(:final action, :final targetVerse):
+        _handleNavigation(action, targetVerse);
+
+      case TranslationIntent(:final translationId):
+        _handleTranslationSwitch(translationId);
     }
   }
+
+  String _intentKey(DetectedIntent intent) => switch (intent) {
+        VerseIntent(:final ref) =>
+          'verse-${ref.book}-${ref.chapter}-${ref.verse}',
+        VerseRangeIntent(:final start, :final endVerse) =>
+          'range-${start.book}-${start.chapter}-${start.verse}-$endVerse',
+        NavigationIntent(:final action, :final targetVerse) =>
+          'nav-$action-$targetVerse',
+        TranslationIntent(:final translationId) => 'trans-$translationId',
+      };
 
   void _onStateChange(ListeningState state) {
     if (!mounted) return;
@@ -196,12 +330,87 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Hotkeys  (Space = push queue | Esc = clear | F5 = mic | Ctrl+F = search)
+  // Auto-advance through verse range
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Checks whether the preacher has read enough of the current verse to
+  /// advance to the next one in the range.
+  ///
+  /// Compares significant words from the verse text against the transcript
+  /// accumulated since the verse was pushed. Advances when ≥65% match.
+  void _checkAutoAdvance() {
+    if (_liveRange.length <= 1) return;
+    if (_liveRangeIndex >= _liveRange.length - 1) return;
+    if (_currentVerse == null) return;
+
+    final verseWords = _significantWords(_currentVerse!.text);
+    if (verseWords.isEmpty) return;
+
+    final spokenWords = _significantWords(_transcriptSincePush);
+    final matched = verseWords.where(spokenWords.contains).length;
+    final ratio = matched / verseWords.length;
+
+    if (ratio >= 0.65) {
+      _liveRangeIndex++;
+      _pushLive(_liveRange[_liveRangeIndex]);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Navigation commands
+  // ─────────────────────────────────────────────────────────────────────────
+
+  void _handleNavigation(NavigationAction action, int? targetVerse) {
+    switch (action) {
+      case NavigationAction.next:
+        if (_liveRange.isNotEmpty && _liveRangeIndex < _liveRange.length - 1) {
+          // Advance within detected range
+          _liveRangeIndex++;
+          _pushLive(_liveRange[_liveRangeIndex]);
+        } else if (_currentVerse != null) {
+          // No range — go to next verse in same chapter
+          final ref = _currentVerse!.reference;
+          _autoFetchAndDisplay(VerseReference(
+            book: ref.book,
+            chapter: ref.chapter,
+            verse: ref.verse + 1,
+          ));
+        }
+
+      case NavigationAction.specific:
+        if (targetVerse == null) return;
+        if (_currentVerse != null) {
+          final ref = _currentVerse!.reference;
+          _autoFetchAndDisplay(VerseReference(
+            book: ref.book,
+            chapter: ref.chapter,
+            verse: targetVerse,
+          ));
+        }
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Translation switching
+  // ─────────────────────────────────────────────────────────────────────────
+
+  void _handleTranslationSwitch(String translationId) {
+    if (_settings.translation == translationId) return;
+    _settings.translation = translationId;
+    _showSnack('Translation → ${translationId.toUpperCase()}');
+
+    // Re-fetch current verse in the new translation
+    if (_currentVerse != null) {
+      _autoFetchAndDisplay(_currentVerse!.reference);
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Hotkeys
   // ─────────────────────────────────────────────────────────────────────────
 
   bool _handleKey(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
-
     if (_searchFocusNode.hasFocus || _lyricsFocusNode.hasFocus) return false;
 
     final key = event.logicalKey;
@@ -235,7 +444,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _pushFromQueue(0);
       return true;
     }
-
     return false;
   }
 
@@ -249,6 +457,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void _pushLive(BibleVerse verse) {
     setState(() {
       _currentVerse = verse;
+      _transcriptSincePush = ''; // reset auto-advance tracking
       _history.insert(0, _HistoryEntry(verse));
       if (_history.length > _maxHistory) _history.removeLast();
     });
@@ -258,7 +467,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   void _clearOutput() {
     setState(() {
       _currentVerse = null;
-      _lastDetectedRef = null;
+      _liveRange = [];
+      _liveRangeIndex = 0;
+      _transcriptSincePush = '';
+      _lastIntentKey = '';
     });
     _publishToSecondDisplay();
   }
@@ -267,7 +479,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     setState(() {
       _currentVerse = null;
       _transcript = '';
-      _lastDetectedRef = null;
+      _liveRange = [];
+      _liveRangeIndex = 0;
+      _transcriptSincePush = '';
+      _lastIntentKey = '';
       _searchResult = null;
     });
     _publishToSecondDisplay();
@@ -283,14 +498,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // ── Queue ──────────────────────────────────────────────────────────────────
 
-  void _addToQueue(BibleVerse verse) {
-    setState(() => _queue.add(verse));
-  }
+  void _addToQueue(BibleVerse verse) => setState(() => _queue.add(verse));
 
   void _pushFromQueue(int index) {
     if (index < 0 || index >= _queue.length) return;
     final verse = _queue[index];
     setState(() => _queue.removeAt(index));
+    _liveRange = [];
+    _liveRangeIndex = 0;
     _pushLive(verse);
   }
 
@@ -316,7 +531,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Auto-detect from speech
+  // Fetch helpers
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _autoFetchAndDisplay(VerseReference ref) async {
@@ -325,6 +540,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final verse = await _bible.fetchVerse(ref);
       if (!mounted) return;
       _pushLive(verse);
+    } catch (_) {}
+  }
+
+  /// Fetches all verses from [start] through [endVerse] in the same chapter,
+  /// displays the first immediately, and stores the rest for auto-advance.
+  Future<void> _autoFetchRangeAndDisplay(
+      VerseReference start, int endVerse) async {
+    try {
+      _bible.translation = _settings.translation;
+      final verses = <BibleVerse>[];
+      for (var v = start.verse; v <= endVerse; v++) {
+        final verse = await _bible.fetchVerse(
+          VerseReference(book: start.book, chapter: start.chapter, verse: v),
+        );
+        verses.add(verse);
+      }
+      if (!mounted || verses.isEmpty) return;
+      setState(() {
+        _liveRange = verses;
+        _liveRangeIndex = 0;
+      });
+      _pushLive(verses.first);
     } catch (_) {}
   }
 
@@ -362,7 +599,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (!mounted) return;
       setState(() {
         _searchLoading = false;
-        _searchError = 'Could not load verse — check connection';
+        _searchError = 'Could not load verse';
       });
     }
   }
@@ -402,7 +639,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (_speech.state == ListeningState.listening) {
       await _speech.stopListening();
     } else {
-      _lastDetectedRef = null;
+      _lastIntentKey = '';
       await _speech.startListening();
     }
   }
@@ -728,6 +965,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ]),
             ),
           ),
+        // Range progress indicator
+        if (_liveRange.length > 1)
+          Positioned(
+            top: 10,
+            left: 70,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '${_liveRangeIndex + 1} / ${_liveRange.length}',
+                style: const TextStyle(
+                    color: Colors.white70, fontSize: 10, letterSpacing: 0.5),
+              ),
+            ),
+          ),
         Positioned(
           top: 8,
           right: 8,
@@ -820,7 +1075,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ── Mic controls ───────────────────────────────────────────────────────────
 
   Widget _buildMicControls(ThemeData theme) {
-    // Show Vosk download prompt if model isn't on disk yet.
     if (_needsModelDownload) {
       return VoskModelDownloadWidget(
         onReady: () async {
@@ -1013,7 +1267,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               style: TextStyle(
                   fontSize: 14, color: theme.textTheme.bodyMedium?.color),
               decoration: InputDecoration(
-                hintText: 'e.g. John 3:16 or Psalm 23',
+                hintText: 'e.g. John 3:16 or Genesis 1:2-5',
                 prefixIcon: Icon(Icons.search_rounded,
                     size: 18, color: theme.textTheme.bodySmall?.color),
                 contentPadding:
@@ -1047,8 +1301,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           _verseCard(
             verse: _searchResult!,
             theme: theme,
-            leading: Icon(Icons.search_rounded,
-                size: 14, color: theme.textTheme.bodySmall?.color),
             onPushLive: () => _pushLive(_searchResult!),
             onAddQueue: () {
               _addToQueue(_searchResult!);
@@ -1091,7 +1343,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Widget _verseCard({
     required BibleVerse verse,
     required ThemeData theme,
-    Widget? leading,
     VoidCallback? onPushLive,
     VoidCallback? onAddQueue,
   }) {
@@ -1115,15 +1366,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     color: theme.colorScheme.primary,
                     letterSpacing: 0.5)),
           const SizedBox(height: 4),
-          Text(
-            verse.text,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-                fontSize: 13,
-                color: theme.textTheme.bodyMedium?.color,
-                height: 1.4),
-          ),
+          Text(verse.text,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  fontSize: 13,
+                  color: theme.textTheme.bodyMedium?.color,
+                  height: 1.4)),
           const SizedBox(height: 8),
           Row(children: [
             if (onPushLive != null)
