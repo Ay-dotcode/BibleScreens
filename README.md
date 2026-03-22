@@ -152,10 +152,12 @@ bible_screens/
 │   │   ├── second_display_bridge_web.dart
 │   │   ├── song_db_service.dart
 │   │   ├── speech_service.dart
-│   │   └── verse_detector.dart
+│   │   ├── verse_detector.dart
+│   │   └── vosk_model_service.dart
 │   └── utils/
 │       ├── bible_books.dart
 │       ├── bible_chapters.dart
+│       ├── bible_grammar.dart
 │       ├── color_compat.dart
 │       ├── number_words.dart
 │       └── rtf_parser.dart

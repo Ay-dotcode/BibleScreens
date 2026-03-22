@@ -15,6 +15,7 @@ import '../services/speech_service.dart';
 import '../services/verse_detector.dart';
 // ignore: unused_import
 import '../utils/color_compat.dart';
+import '../widgets/vosk_model_download_widget.dart';
 import 'settings_screen.dart';
 import 'song_search_screen.dart';
 
@@ -70,6 +71,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   List<InputDevice> _availableMics = [];
   InputDevice? _selectedMic;
 
+  // ── Vosk model ─────────────────────────────────────────────────────────────
+  bool _needsModelDownload = false;
+
   // ── Subscriptions ──────────────────────────────────────────────────────────
   StreamSubscription<String>? _transcriptSub;
   StreamSubscription<ListeningState>? _stateSub;
@@ -91,7 +95,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 3, vsync: this); // ← was 2
+    _tabCtrl = TabController(length: 3, vsync: this);
 
     _pulseCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1200))
@@ -179,7 +183,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   void _onSpeechError(String error) {
     if (!mounted) return;
-    _showError(error);
+    if (error == 'model_not_downloaded') {
+      setState(() => _needsModelDownload = true);
+    } else {
+      _showError(error);
+    }
   }
 
   void _onAudioLevel(double level) {
@@ -194,7 +202,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _handleKey(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
 
-    // Don't intercept when the user is typing in a text field.
     if (_searchFocusNode.hasFocus || _lyricsFocusNode.hasFocus) return false;
 
     final key = event.logicalKey;
@@ -220,7 +227,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       return false;
     }
     if (ctrl && key == LogicalKeyboardKey.keyF) {
-      _tabCtrl.animateTo(0); // switch to Bible tab
+      _tabCtrl.animateTo(0);
       _searchFocusNode.requestFocus();
       return true;
     }
@@ -265,8 +272,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
     _publishToSecondDisplay();
   }
-
-  // ── Push a plain text slide (used by SongSearchScreen) ────────────────────
 
   void _pushTextSlide(String text) {
     _pushLive(BibleVerse(
@@ -393,6 +398,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ─────────────────────────────────────────────────────────────────────────
 
   void _toggleListening() async {
+    if (_needsModelDownload) return;
     if (_speech.state == ListeningState.listening) {
       await _speech.stopListening();
     } else {
@@ -814,6 +820,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ── Mic controls ───────────────────────────────────────────────────────────
 
   Widget _buildMicControls(ThemeData theme) {
+    // Show Vosk download prompt if model isn't on disk yet.
+    if (_needsModelDownload) {
+      return VoskModelDownloadWidget(
+        onReady: () async {
+          setState(() => _needsModelDownload = false);
+          final ok = await _speech.init();
+          if (!ok && mounted) {
+            _showError(
+                'Model downloaded but failed to load — restart the app.');
+          }
+        },
+      );
+    }
+
     final isListening = _speech.state == ListeningState.listening;
 
     return Container(
@@ -957,7 +977,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   text: 'Lyrics'),
               Tab(
                   icon: Icon(Icons.library_music_rounded, size: 16),
-                  text: 'Songs'), // ← new
+                  text: 'Songs'),
             ],
           ),
         ),
@@ -967,7 +987,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             children: [
               _buildBibleTab(theme),
               _buildLyricsTab(theme),
-              SongSearchScreen(onSlidePush: _pushTextSlide), // ← new
+              SongSearchScreen(onSlidePush: _pushTextSlide),
             ],
           ),
         ),

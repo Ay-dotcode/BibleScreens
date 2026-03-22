@@ -1,322 +1,274 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:record/record.dart';
-import 'package:web_socket_channel/io.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:vosk_flutter_service/vosk_flutter.dart';
+
+import '../utils/bible_grammar.dart';
+import 'vosk_model_service.dart';
 
 enum ListeningState { idle, initializing, listening, paused, error }
 
 class SpeechService {
-  // ── Deepgram config ────────────────────────────────────────────────────────
-  static const String _apiKey = '041d7c9ddefd54080663f8c21c82e65ce6c2367d';
+  final _transcriptCtrl = StreamController<String>.broadcast();
+  final _stateCtrl = StreamController<ListeningState>.broadcast();
+  final _errorCtrl = StreamController<String>.broadcast();
+  final _audioLevelCtrl = StreamController<double>.broadcast();
 
-  static const String _wsUrl = 'wss://api.deepgram.com/v1/listen'
-      '?encoding=linear16'
-      '&sample_rate=16000'
-      '&channels=1'
-      '&model=nova-3'
-      '&language=en-US'
-      '&interim_results=true'
-      '&punctuate=true'
-      '&endpointing=300';
-
-  // ── Internal state ─────────────────────────────────────────────────────────
-  final _recorder = AudioRecorder();
-  WebSocketChannel? _channel;
-  StreamSubscription<Uint8List>? _audioSub;
-  StreamSubscription<dynamic>? _wsSub;
+  Stream<String> get transcriptStream => _transcriptCtrl.stream;
+  Stream<ListeningState> get stateStream => _stateCtrl.stream;
+  Stream<String> get errorStream => _errorCtrl.stream;
+  Stream<double> get audioLevelStream => _audioLevelCtrl.stream;
 
   ListeningState _state = ListeningState.idle;
   ListeningState get state => _state;
 
-  bool _wantListening = false;
+  final _vosk = VoskFlutterPlugin.instance();
+  Model? _model;
+  Recognizer? _recognizer;
 
-  /// The microphone device to record from. null = system default.
-  InputDevice? _selectedDevice;
+  dynamic _androidSpeechService;
+  StreamSubscription<String>? _androidResultSub;
+  StreamSubscription<String>? _androidPartialSub;
 
-  // ── Public streams ─────────────────────────────────────────────────────────
-  final _transcriptController = StreamController<String>.broadcast();
-  final _stateController = StreamController<ListeningState>.broadcast();
-  final _errorController = StreamController<String>.broadcast();
+  final _recorder = AudioRecorder();
+  StreamSubscription<Uint8List>? _pcmSub;
 
-  /// Emits a normalised audio level in [0.0, 1.0] derived from RMS of each
-  /// PCM chunk. Emits 0.0 when not recording.
-  final _audioLevelController = StreamController<double>.broadcast();
+  bool _initialized = false;
+  bool get _isDesktop =>
+      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
-  Stream<String> get transcriptStream => _transcriptController.stream;
-  Stream<ListeningState> get stateStream => _stateController.stream;
-  Stream<String> get errorStream => _errorController.stream;
-  Stream<double> get audioLevelStream => _audioLevelController.stream;
+  // Minimum average confidence across all words in a result.
+  // Results below this are discarded as likely false positives from
+  // ambient speech being forced into Bible vocabulary.
+  static const double _minConfidence = 0.75;
 
-  // ── Transcript state ───────────────────────────────────────────────────────
-  static const int _maxTranscriptChars = 500;
-  String _lastTranscript = '';
-  String get lastTranscript => _lastTranscript;
-  String _stableTranscript = '';
+  // ── Mic selection ──────────────────────────────────────────────────────────
+  List<InputDevice> _availableMics = [];
+  InputDevice? _selectedMic;
 
-  // ── Microphone enumeration ─────────────────────────────────────────────────
-
-  /// Returns all available audio input devices. May be empty on platforms
-  /// where the record package does not support enumeration.
   Future<List<InputDevice>> listMicrophones() async {
-    try {
-      return await _recorder.listInputDevices();
-    } catch (_) {
-      return [];
-    }
+    _availableMics = await _recorder.listInputDevices();
+    return _availableMics;
   }
 
-  /// Switch to [device] (pass null to revert to the system default). If the
-  /// service is currently listening the connection is cycled immediately.
-  void setMicrophone(InputDevice? device) {
-    _selectedDevice = device;
-    if (_wantListening) {
-      _disconnect().then((_) {
-        if (_wantListening) _connect();
-      });
-    }
-  }
+  void setMicrophone(InputDevice? mic) => _selectedMic = mic;
 
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
+  // ── Init ───────────────────────────────────────────────────────────────────
 
   Future<bool> init() async {
-    _setState(ListeningState.initializing);
+    if (_initialized) return true;
+    _emitState(ListeningState.initializing);
 
-    final hasPermission = await _recorder.hasPermission();
-    if (!hasPermission) {
-      _setState(ListeningState.error);
-      _errorController.add(
-        'Microphone permission denied. '
-        'Allow microphone access in Windows Settings → Privacy → Microphone.',
+    try {
+      final modelSvc = VoskModelService.instance;
+      if (!await modelSvc.isDownloaded(kDefaultModel)) {
+        _emitState(ListeningState.idle);
+        _errorCtrl.add('model_not_downloaded');
+        return false;
+      }
+
+      final path = await modelSvc.modelPath(kDefaultModel);
+      _model = await _vosk.createModel(path);
+
+      // Grammar mode: restrict Vosk to Bible book names + numbers only.
+      // Combined with confidence filtering this prevents ambient speech
+      // from being misheard as verse references.
+      _recognizer = await _vosk.createRecognizer(
+        model: _model!,
+        sampleRate: 16000,
+        grammar: kBibleGrammar,
       );
+
+      _initialized = true;
+      _emitState(ListeningState.idle);
+      return true;
+    } catch (e) {
+      _emitState(ListeningState.error);
+      _errorCtrl.add('Vosk init failed: $e');
       return false;
     }
-
-    _setState(ListeningState.idle);
-    return true;
   }
 
+  // ── Listening ──────────────────────────────────────────────────────────────
+
   Future<void> startListening() async {
-    if (_wantListening) return;
-    _wantListening = true;
-    _stableTranscript = '';
-    _lastTranscript = '';
-    await _connect();
+    if (!_initialized) {
+      final ok = await init();
+      if (!ok) return;
+    }
+    _emitState(ListeningState.listening);
+    _isDesktop ? await _startDesktop() : await _startAndroid();
   }
 
   Future<void> stopListening() async {
-    _wantListening = false;
-    await _disconnect();
-    _setState(ListeningState.idle);
+    _isDesktop ? await _stopDesktop() : await _stopAndroid();
+    _audioLevelCtrl.add(0.0);
+    _emitState(ListeningState.idle);
   }
 
-  // ── Connection ─────────────────────────────────────────────────────────────
+  // ── Desktop ────────────────────────────────────────────────────────────────
 
-  Future<void> _connect() async {
-    _setState(ListeningState.initializing);
-
+  Future<void> _startDesktop() async {
     try {
-      _channel = IOWebSocketChannel.connect(
-        Uri.parse(_wsUrl),
-        headers: {'Authorization': 'Token $_apiKey'},
-      );
-
-      await _channel!.ready;
-
-      _setState(ListeningState.listening);
-
-      _wsSub = _channel!.stream.listen(
-        _onWsMessage,
-        onError: _onWsError,
-        onDone: _onWsDone,
-      );
-
-      // Start capturing microphone audio as raw 16-bit PCM.
-      final audioStream = await _recorder.startStream(
-        RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
-          sampleRate: 16000,
-          numChannels: 1,
-          device: _selectedDevice, // null → system default
-        ),
-      );
-
-      _audioSub = audioStream.listen(
-        (Uint8List chunk) {
-          // Forward audio to Deepgram.
-          try {
-            _channel?.sink.add(chunk);
-          } catch (_) {
-            // Channel closed mid-stream — _onWsDone will handle reconnect.
-          }
-
-          // Compute and broadcast the RMS level for the visualiser.
-          if (!_audioLevelController.isClosed) {
-            _audioLevelController.add(_rms(chunk));
-          }
-        },
-        onError: (Object error) {
-          _errorController.add('Audio capture error: $error');
-        },
-      );
-    } catch (error) {
-      _setState(ListeningState.error);
-      _errorController.add('Could not connect to Deepgram: $error');
-      if (_wantListening) {
-        Future.delayed(const Duration(seconds: 2), () {
-          if (_wantListening) _connect();
-        });
+      if (!await _recorder.hasPermission()) {
+        _emitState(ListeningState.error);
+        _errorCtrl.add('Microphone permission denied');
+        return;
       }
+
+      final stream = await _recorder.startStream(RecordConfig(
+        encoder: AudioEncoder.pcm16bits,
+        sampleRate: 16000,
+        numChannels: 1,
+        device: _selectedMic,
+      ));
+
+      _pcmSub = stream.listen(
+        (chunk) async {
+          if (_recognizer == null) return;
+          final ready = await _recognizer!.acceptWaveformBytes(chunk);
+          if (ready) {
+            // Final results include per-word confidence — filter low confidence
+            final text = _parseWithConfidence(await _recognizer!.getResult());
+            if (text.isNotEmpty) _transcriptCtrl.add(text);
+          } else {
+            // Partials have no confidence scores — show as-is in transcript
+            // strip but VerseDetector will only act on final results
+            final text =
+                _parseText(await _recognizer!.getPartialResult(), 'partial');
+            if (text.isNotEmpty) _transcriptCtrl.add(text);
+          }
+          _audioLevelCtrl.add(_rms(chunk));
+        },
+        onError: (e) {
+          _errorCtrl.add('Mic stream error: $e');
+          _emitState(ListeningState.error);
+        },
+      );
+    } catch (e) {
+      _emitState(ListeningState.error);
+      _errorCtrl.add('Could not start microphone: $e');
     }
   }
 
-  Future<void> _disconnect() async {
-    await _audioSub?.cancel();
-    _audioSub = null;
-
-    await _wsSub?.cancel();
-    _wsSub = null;
-
-    if (await _recorder.isRecording()) {
-      await _recorder.stop();
-    }
-
-    // Reset the visualiser.
-    if (!_audioLevelController.isClosed) _audioLevelController.add(0.0);
-
-    try {
-      _channel?.sink.add('{"type":"CloseStream"}');
-    } catch (_) {}
-    await _channel?.sink.close();
-    _channel = null;
-  }
-
-  // ── Audio level ────────────────────────────────────────────────────────────
-
-  /// Computes the root-mean-square amplitude of a PCM-16 LE chunk and returns
-  /// a value normalised to [0.0, 1.0].
-  double _rms(Uint8List chunk) {
-    final sampleCount = chunk.length ~/ 2;
-    if (sampleCount == 0) return 0.0;
-
-    double sumSq = 0.0;
-    for (int i = 0; i < sampleCount * 2; i += 2) {
-      // Reconstruct signed 16-bit sample (little-endian).
-      int raw = chunk[i] | (chunk[i + 1] << 8);
-      if (raw > 32767) raw -= 65536;
-      sumSq += raw * raw;
-    }
-
-    return (sqrt(sumSq / sampleCount) / 32768.0).clamp(0.0, 1.0);
-  }
-
-  // ── WebSocket events ───────────────────────────────────────────────────────
-
-  void _onWsMessage(dynamic raw) {
-    if (raw is! String) return;
-
-    final Map<String, dynamic> json;
-    try {
-      json = jsonDecode(raw) as Map<String, dynamic>;
-    } catch (_) {
-      return;
-    }
-
-    final type = json['type'] as String?;
-    if (type != 'Results') return;
-
-    final channel = json['channel'] as Map<String, dynamic>?;
-    final alternatives = channel?['alternatives'] as List<dynamic>?;
-    if (alternatives == null || alternatives.isEmpty) return;
-
-    final transcript =
-        (alternatives.first as Map<String, dynamic>)['transcript'] as String?;
-    if (transcript == null || transcript.trim().isEmpty) return;
-
-    final isFinal = json['is_final'] as bool? ?? false;
-    final speechFinal = json['speech_final'] as bool? ?? false;
-
-    if (isFinal || speechFinal) {
-      _stableTranscript =
-          _mergeTranscript(_stableTranscript, transcript.trim());
-      _emitTranscript(_stableTranscript);
-    } else {
-      _emitTranscript(_mergeTranscript(_stableTranscript, transcript.trim()));
+  Future<void> _stopDesktop() async {
+    await _pcmSub?.cancel();
+    _pcmSub = null;
+    await _recorder.stop();
+    if (_recognizer != null) {
+      final text = _parseWithConfidence(await _recognizer!.getFinalResult());
+      if (text.isNotEmpty) _transcriptCtrl.add(text);
     }
   }
 
-  void _onWsError(Object error) {
-    if (!_errorController.isClosed) {
-      _errorController.add('Deepgram connection error: $error');
-    }
-    if (_wantListening) {
-      Future.delayed(const Duration(seconds: 2), () {
-        if (_wantListening) _connect();
-      });
-    }
+  // ── Android ────────────────────────────────────────────────────────────────
+
+  Future<void> _startAndroid() async {
+    _androidSpeechService = await _vosk.initSpeechService(_recognizer!);
+    _androidResultSub = _androidSpeechService.onResult().listen((e) {
+      final text = _parseWithConfidence(e);
+      if (text.isNotEmpty) _transcriptCtrl.add(text);
+    });
+    _androidPartialSub = _androidSpeechService.onPartial().listen((e) {
+      final text = _parseText(e, 'partial');
+      if (text.isNotEmpty) _transcriptCtrl.add(text);
+    });
+    await _androidSpeechService.start();
   }
 
-  void _onWsDone() {
-    if (_wantListening) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (_wantListening) _connect();
-      });
-    }
+  Future<void> _stopAndroid() async {
+    await _androidResultSub?.cancel();
+    await _androidPartialSub?.cancel();
+    await _androidSpeechService?.stop();
+    await _androidSpeechService?.dispose();
+    _androidSpeechService = null;
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  void _setState(ListeningState s) {
-    _state = s;
-    if (!_stateController.isClosed) _stateController.add(s);
-  }
+  /// Parses a Vosk final result JSON and returns the text only if the
+  /// average per-word confidence meets [_minConfidence].
+  ///
+  /// Vosk result format with word-level confidence:
+  /// {
+  ///   "result": [
+  ///     {"conf": 0.92, "word": "john"},
+  ///     {"conf": 0.88, "word": "three"},
+  ///     {"conf": 0.95, "word": "sixteen"}
+  ///   ],
+  ///   "text": "john three sixteen"
+  /// }
+  String _parseWithConfidence(String json) {
+    try {
+      final map = jsonDecode(json) as Map<String, dynamic>;
+      final text = (map['text'] as String? ?? '').trim();
+      if (text.isEmpty) return '';
 
-  void _emitTranscript(String text) {
-    final compact = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (compact.isEmpty) return;
-
-    final clipped = compact.length <= _maxTranscriptChars
-        ? compact
-        : compact.substring(compact.length - _maxTranscriptChars);
-
-    _lastTranscript = clipped;
-    if (!_transcriptController.isClosed) _transcriptController.add(clipped);
-  }
-
-  String _mergeTranscript(String base, String incoming) {
-    final left = base.trim();
-    final right = incoming.trim();
-    if (left.isEmpty) return right;
-    if (right.isEmpty) return left;
-
-    final leftWords = left.split(RegExp(r'\s+'));
-    final rightWords = right.split(RegExp(r'\s+'));
-    final maxOverlap = leftWords.length < rightWords.length
-        ? leftWords.length
-        : rightWords.length;
-
-    for (var overlap = maxOverlap; overlap > 0; overlap--) {
-      final leftSlice = leftWords.sublist(leftWords.length - overlap).join(' ');
-      final rightSlice = rightWords.sublist(0, overlap).join(' ');
-      if (leftSlice == rightSlice) {
-        return '${leftWords.join(' ')} ${rightWords.sublist(overlap).join(' ')}'
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim();
+      final results = map['result'] as List<dynamic>?;
+      if (results == null || results.isEmpty) {
+        // No per-word scores available — fall back to returning the text
+        return text;
       }
-    }
 
-    return '$left $right';
+      double totalConf = 0;
+      int count = 0;
+      for (final w in results) {
+        final conf = (w as Map<String, dynamic>)['conf'];
+        if (conf != null) {
+          totalConf += (conf as num).toDouble();
+          count++;
+        }
+      }
+
+      if (count == 0) return text;
+      final avgConf = totalConf / count;
+      return avgConf >= _minConfidence ? text : '';
+    } catch (_) {
+      return '';
+    }
   }
+
+  String _parseText(String json, String key) {
+    try {
+      return ((jsonDecode(json) as Map<String, dynamic>)[key] as String? ?? '')
+          .trim();
+    } catch (_) {
+      return '';
+    }
+  }
+
+  double _rms(Uint8List bytes) {
+    if (bytes.length < 2) return 0;
+    final samples = bytes.buffer.asInt16List();
+    double sum = 0;
+    for (final s in samples) {
+      sum += s * s;
+    }
+    return ((sum / samples.length) / (32768.0 * 32768.0)).clamp(0.0, 1.0);
+  }
+
+  void _emitState(ListeningState s) {
+    _state = s;
+    _stateCtrl.add(s);
+  }
+
+  // ── Dispose ────────────────────────────────────────────────────────────────
 
   Future<void> dispose() async {
-    _wantListening = false;
-    await _disconnect();
-    _transcriptController.close();
-    _stateController.close();
-    _errorController.close();
-    _audioLevelController.close();
+    await _pcmSub?.cancel();
+    await _recorder.dispose();
+    await _androidResultSub?.cancel();
+    await _androidPartialSub?.cancel();
+    await _androidSpeechService?.stop();
+    await _androidSpeechService?.dispose();
+    _recognizer?.dispose();
+    _model?.dispose();
+    await _transcriptCtrl.close();
+    await _stateCtrl.close();
+    await _errorCtrl.close();
+    await _audioLevelCtrl.close();
   }
 }
