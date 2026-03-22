@@ -21,6 +21,7 @@ dependencies:
   sqflite_common_ffi: ^2.3.4
   vosk_flutter_service: ^0.0.7
   archive: 4.0.9
+  xml: ^6.6.1
 
 dev_dependencies:
   flutter_test:
@@ -33,3 +34,11 @@ flutter:
     - assets/databases/Songs.db
     - assets/databases/SongWords.db
     - assets/databases/SongHistory.db
+    - assets/bibles/KJV.xml
+    - assets/bibles/WEB.xml
+    - assets/bibles/ASV.xml
+    - assets/bibles/BBE.xml
+    - assets/bibles/YLT.xml
+    - assets/bibles/AKJV.xml
+    - assets/bibles/ACV.xml
+    - assets/bibles/RNKJV.xml

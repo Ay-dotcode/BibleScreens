@@ -1,13 +1,7 @@
-import 'dart:convert';
-import 'dart:io';
-
-import 'package:http/http.dart' as http;
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter/services.dart';
+import 'package:xml/xml.dart';
 
 import '../models/bible_verse.dart';
-import '../utils/bible_books.dart';
-import '../utils/bible_chapters.dart';
 
 typedef OfflineDownloadProgress = void Function(
   int completedChapters,
@@ -15,96 +9,77 @@ typedef OfflineDownloadProgress = void Function(
   String currentLabel,
 );
 
-/// Fetches Bible verse text using the free bible-api.com API (no key needed).
-/// Results are cached locally as JSON so they load instantly after first use.
+/// Fully offline Bible service backed by bundled XML assets.
+/// Replaces the old HTTP + verse_cache.json implementation entirely.
+/// Same public API as before — nothing else in the app needs to change.
 class BibleService {
-  static const String _baseUrl = 'https://bible-api.com';
   static const String _defaultTranslation = 'kjv';
 
+  // ── Translation registry ───────────────────────────────────────────────────
+  // Keys are lowercase to match existing AppSettings translation IDs.
+
+  static const Map<String, String> _assetPaths = {
+    'kjv': 'assets/bibles/KJV.xml',
+    'web': 'assets/bibles/WEB.xml',
+    'asv': 'assets/bibles/ASV.xml',
+    'bbe': 'assets/bibles/BBE.xml',
+    'ylt': 'assets/bibles/YLT.xml',
+    'akjv': 'assets/bibles/AKJV.xml',
+    'acv': 'assets/bibles/ACV.xml',
+    'rnkjv': 'assets/bibles/RNKJV.xml',
+  };
+
+  static const List<Map<String, String>> availableTranslations = [
+    {'id': 'kjv', 'name': 'King James Version'},
+    {'id': 'akjv', 'name': 'Authorized King James Version'},
+    {'id': 'rnkjv', 'name': 'Revised New King James Version'},
+    {'id': 'web', 'name': 'World English Bible'},
+    {'id': 'asv', 'name': 'American Standard Version'},
+    {'id': 'acv', 'name': 'A Conservative Version'},
+    {'id': 'bbe', 'name': 'Bible in Basic English'},
+    {'id': 'ylt', 'name': "Young's Literal Translation"},
+  ];
+
+  // ── State ──────────────────────────────────────────────────────────────────
+
   String _translation = _defaultTranslation;
-  final Map<String, String> _memCache = {};
-  File? _cacheFile;
 
   String get translation => _translation;
   set translation(String value) {
-    _translation = value;
-    _memCache.clear(); // clear when translation changes
+    _translation = value.toLowerCase();
   }
 
-  /// Available translations on bible-api.com
-  static const List<Map<String, String>> availableTranslations = [
-    {'id': 'kjv', 'name': 'King James Version'},
-    {'id': 'web', 'name': 'World English Bible'},
-    {'id': 'asv', 'name': 'American Standard Version'},
-    {'id': 'bbe', 'name': 'Bible in Basic English'},
-    {'id': 'darby', 'name': 'Darby Bible'},
-    {'id': 'dra', 'name': 'Douay-Rheims'},
-    {'id': 'ylt', 'name': 'Young\'s Literal Translation'},
-  ];
+  // Parsed books per translation, loaded lazily on first access.
+  // _cache[translationId][bookName][chapter][verse] = text
+  final Map<String, Map<String, Map<int, Map<int, String>>>> _cache = {};
 
-  Future<void> init() async {
-    try {
-      final dir = await getApplicationDocumentsDirectory();
-      final cacheDir = Directory(p.join(dir.path, 'bible_screens'));
-      if (!await cacheDir.exists()) await cacheDir.create(recursive: true);
-      _cacheFile = File(p.join(cacheDir.path, 'verse_cache.json'));
-      await _loadDiskCache();
-    } catch (_) {
-      // Cache is optional — app still works without it
-    }
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // Public API — identical surface to old BibleService
+  // ─────────────────────────────────────────────────────────────────────────
 
-  Future<void> _loadDiskCache() async {
-    try {
-      if (_cacheFile != null && await _cacheFile!.exists()) {
-        final content = await _cacheFile!.readAsString();
-        final Map<String, dynamic> json = jsonDecode(content);
-        json.forEach((k, v) => _memCache[k] = v as String);
-      }
-    } catch (_) {}
-  }
+  /// No-op — kept for compatibility with existing init() call sites.
+  Future<void> init() async {}
 
-  Future<void> _saveDiskCache() async {
-    try {
-      await _cacheFile?.writeAsString(jsonEncode(_memCache));
-    } catch (_) {}
-  }
-
-  /// Fetches the text for [ref]. Returns a [BibleVerse] or throws on failure.
+  /// Fetches the text for [ref]. Throws on failure (book/chapter/verse missing).
   Future<BibleVerse> fetchVerse(VerseReference ref) async {
-    final cacheKey = '${ref.display}|$_translation';
+    final books = await _loadTranslation(_translation);
 
-    // Memory cache hit
-    if (_memCache.containsKey(cacheKey)) {
-      return BibleVerse(
-        reference: ref,
-        text: _memCache[cacheKey]!,
-        translation: _translation,
-      );
+    // Match book name case-insensitively
+    final bookKey = _findBookKey(books, ref.book);
+    if (bookKey == null) {
+      throw Exception('Book not found: ${ref.book}');
     }
 
-    // Build API URL
-    final apiBook = BibleBooks.apiPath(ref.book) ??
-        ref.book.toLowerCase().replaceAll(' ', '+');
-    final url =
-        '$_baseUrl/$apiBook+${ref.chapter}:${ref.verse}?translation=$_translation';
-
-    final response =
-        await http.get(Uri.parse(url)).timeout(const Duration(seconds: 10));
-
-    if (response.statusCode != 200) {
-      throw Exception('API returned ${response.statusCode} for ${ref.display}');
+    final chapter = books[bookKey]?[ref.chapter];
+    if (chapter == null) {
+      throw Exception('Chapter not found: ${ref.book} ${ref.chapter}');
     }
 
-    final data = jsonDecode(response.body);
-    final text = (data['text'] as String).trim();
-
-    if (text.isEmpty) {
-      throw Exception('No text returned for ${ref.display}');
+    final text = chapter[ref.verse];
+    if (text == null || text.isEmpty) {
+      throw Exception(
+          'Verse not found: ${ref.book} ${ref.chapter}:${ref.verse}');
     }
-
-    _memCache[cacheKey] = text;
-    _saveDiskCache(); // fire-and-forget
 
     return BibleVerse(
       reference: ref,
@@ -113,76 +88,103 @@ class BibleService {
     );
   }
 
+  /// No-op — preloading is no longer needed since everything is bundled.
+  /// Kept so any existing preloadEntireTranslation() call sites don't break.
   Future<void> preloadEntireTranslation({
     String? translation,
     OfflineDownloadProgress? onProgress,
   }) async {
-    await init();
+    onProgress?.call(1, 1, 'Done');
+  }
 
-    if (translation != null) {
-      _translation = translation;
-    }
+  // ─────────────────────────────────────────────────────────────────────────
+  // Internal — XML loading and parsing
+  // ─────────────────────────────────────────────────────────────────────────
 
-    final total = BibleChapters.totalChapters;
-    var completed = 0;
+  Future<Map<String, Map<int, Map<int, String>>>> _loadTranslation(
+      String trans) async {
+    final t = _assetPaths.containsKey(trans) ? trans : _defaultTranslation;
+    if (_cache.containsKey(t)) return _cache[t]!;
 
-    for (final book in BibleBooks.canonicalBooks) {
-      final chapterCount = BibleChapters.counts[book] ?? 0;
-      if (chapterCount <= 0) continue;
+    final path = _assetPaths[t]!;
+    final raw = await rootBundle.loadString(path);
+    final parsed = _parseXml(raw);
+    _cache[t] = parsed;
+    return parsed;
+  }
 
-      for (var chapter = 1; chapter <= chapterCount; chapter++) {
-        final label = '$book $chapter';
-        onProgress?.call(completed, total, label);
+  /// Parses the XMLBIBLE format into:
+  ///   bookName (lowercase) → chapterNumber → verseNumber → text
+  Map<String, Map<int, Map<int, String>>> _parseXml(String xml) {
+    final doc = XmlDocument.parse(xml);
+    final result = <String, Map<int, Map<int, String>>>{};
 
-        try {
-          await _fetchAndCacheChapter(book: book, chapter: chapter);
-        } catch (_) {
-          // Keep going so one chapter failure doesn't abort full sync.
+    for (final bookEl in doc.findAllElements('BIBLEBOOK')) {
+      final bname = (bookEl.getAttribute('bname') ?? '').toLowerCase();
+      if (bname.isEmpty) continue;
+
+      final chapters = <int, Map<int, String>>{};
+
+      for (final chEl in bookEl.findElements('CHAPTER')) {
+        final cn = int.tryParse(chEl.getAttribute('cnumber') ?? '') ?? 0;
+        if (cn == 0) continue;
+        final verses = <int, String>{};
+
+        for (final vEl in chEl.findElements('VERS')) {
+          final vn = int.tryParse(vEl.getAttribute('vnumber') ?? '') ?? 0;
+          if (vn == 0) continue;
+          verses[vn] = vEl.innerText.trim();
         }
+        chapters[cn] = verses;
+      }
 
-        completed++;
-        if (completed % 15 == 0) {
-          await _saveDiskCache();
-        }
+      result[bname] = chapters;
+
+      // Also index by short name (e.g. "gen", "ps") for alias lookups
+      final bsname = (bookEl.getAttribute('bsname') ?? '').toLowerCase();
+      if (bsname.isNotEmpty && bsname != bname) {
+        result[bsname] = chapters;
       }
     }
 
-    await _saveDiskCache();
-    onProgress?.call(total, total, 'Done');
+    return result;
   }
 
-  Future<void> _fetchAndCacheChapter({
-    required String book,
-    required int chapter,
-  }) async {
-    final metaKey = _chapterMetaKey(book, chapter);
-    if (_memCache.containsKey(metaKey)) return;
+  /// Finds the matching book key case-insensitively, also handling common
+  /// spoken variants (e.g. "psalms" → "psalm", "1st samuel" → "1 samuel").
+  String? _findBookKey(
+      Map<String, Map<int, Map<int, String>>> books, String name) {
+    final lower = name.toLowerCase().trim();
 
-    final apiBook =
-        BibleBooks.apiPath(book) ?? book.toLowerCase().replaceAll(' ', '+');
-    final url = '$_baseUrl/$apiBook+$chapter?translation=$_translation';
+    // Direct match
+    if (books.containsKey(lower)) return lower;
 
-    final response =
-        await http.get(Uri.parse(url)).timeout(const Duration(seconds: 15));
-    if (response.statusCode != 200) return;
-
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    final verses = (data['verses'] as List?) ?? const <dynamic>[];
-    if (verses.isEmpty) return;
-
-    for (final verseEntry in verses) {
-      if (verseEntry is! Map<String, dynamic>) continue;
-      final verse = verseEntry['verse'];
-      final verseText = (verseEntry['text'] as String?)?.trim();
-      if (verse is! int || verseText == null || verseText.isEmpty) continue;
-
-      final key = '$book $chapter:$verse|$_translation';
-      _memCache[key] = verseText;
+    // Try normalised variants
+    for (final variant in _bookVariants(lower)) {
+      if (books.containsKey(variant)) return variant;
     }
 
-    _memCache[metaKey] = '1';
+    // Fuzzy: find any key that starts with the search term
+    for (final key in books.keys) {
+      if (key.startsWith(lower) || lower.startsWith(key)) return key;
+    }
+
+    return null;
   }
 
-  String _chapterMetaKey(String book, int chapter) =>
-      '__chapter_cached__$book:$chapter|$_translation';
+  static List<String> _bookVariants(String name) {
+    return [
+      name.replaceAll('psalms', 'psalm'),
+      name.replaceAll('1st ', '1 '),
+      name.replaceAll('2nd ', '2 '),
+      name.replaceAll('3rd ', '3 '),
+      name.replaceAll('first ', '1 '),
+      name.replaceAll('second ', '2 '),
+      name.replaceAll('third ', '3 '),
+      name.replaceAll('song of songs', 'song of solomon'),
+      name.replaceAll('song of solomon', 'song of songs'),
+      name.replaceAll('revelation', 'rev'),
+      name.replaceAll('rev', 'revelation'),
+    ];
+  }
 }
