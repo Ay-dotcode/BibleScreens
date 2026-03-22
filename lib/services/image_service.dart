@@ -4,7 +4,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+
+import 'app_storage_service.dart';
 
 /// Manages background image acquisition and local caching.
 ///
@@ -14,10 +15,7 @@ class ImageService {
   // ── Directory ──────────────────────────────────────────────────────────────
 
   static Future<Directory> _imagesDir() async {
-    final base = await getApplicationDocumentsDirectory();
-    final dir = Directory(p.join(base.path, 'bible_screens', 'images'));
-    if (!await dir.exists()) await dir.create(recursive: true);
-    return dir;
+    return AppStorageService.imagesDirectory();
   }
 
   // ── Local file picker ──────────────────────────────────────────────────────

@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+
+import 'app_storage_service.dart';
 
 // ── Model catalogue ────────────────────────────────────────────────────────
 //
@@ -75,10 +76,7 @@ class VoskModelService {
   // ── Paths ──────────────────────────────────────────────────────────────────
 
   Future<Directory> get _modelsDir async {
-    final docs = await getApplicationDocumentsDirectory();
-    final dir = Directory(p.join(docs.path, 'vosk_models'));
-    if (!dir.existsSync()) await dir.create(recursive: true);
-    return dir;
+    return AppStorageService.modelsDirectory();
   }
 
   Future<String> modelPath(VoskModelInfo info) async {

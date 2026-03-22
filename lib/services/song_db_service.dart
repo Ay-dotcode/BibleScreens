@@ -2,13 +2,13 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/song.dart';
 import '../utils/rtf_parser.dart';
+import 'app_storage_service.dart';
 
-/// Service for reading song data from the EasyWorship SQLite databases.
+/// Service for reading song data from the song database SQLite files.
 ///
 /// On first launch the .db asset files are copied to the app's documents
 /// directory so sqflite can open them read-only.
@@ -42,8 +42,8 @@ class SongDbService {
 
   /// Copy the asset DB to documents dir (if not already there) and open it.
   Future<Database> _openAssetDb(String assetPath, String fileName) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final dbPath = p.join(dir.path, 'easyworship_dbs', fileName);
+    final dir = await AppStorageService.songDatabaseDirectory();
+    final dbPath = p.join(dir.path, fileName);
 
     final file = File(dbPath);
     if (!file.existsSync()) {

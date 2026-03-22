@@ -64,10 +64,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 (v) => _settings.update((s) => s.transcriptOpacity = v), theme),
             const SizedBox(height: 24),
             _section('About', theme),
-            _infoTile('Speech backend', 'Deepgram nova-3 (WebSocket)', theme),
+            _infoTile('Speech backend', 'Vosk local speech recognition', theme),
             _infoTile('Bible source', 'Bundled local XML translations', theme),
             _infoTile(
-                'Internet usage', 'Speech stream + optional image URL', theme),
+                'Internet usage', 'Optional image URL download only', theme),
             _infoTile('Offline Bible mode',
                 'Always available (no verse downloads)', theme),
             _infoTile('Supported speech language', 'English (US)', theme),

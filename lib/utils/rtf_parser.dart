@@ -1,6 +1,6 @@
 import '../models/song.dart';
 
-/// Parses the EasyWorship RTF lyrics format into [SongLyrics].
+/// Parses the song database RTF lyrics format into [SongLyrics].
 ///
 /// The RTF stores one block of text per song. Sections are indicated by lines
 /// like "Verse 1", "Chorus 1", "Bridge", etc.
@@ -9,16 +9,16 @@ class RtfParser {
       r'^(Verse|Chorus|Bridge|Pre-Chorus|Intro|Outro|Tag|Ending)\s*\d*$';
   static final _sectionRe = RegExp(_sectionPattern, caseSensitive: false);
 
-  /// Extract plain-text lines from EasyWorship RTF.
+  /// Extract plain-text lines from song database RTF.
   ///
   /// Handles both old-style (`\\fntnamaut text\\par`) and
-  /// new-style (`\\sdeasyworship2` format).
+  /// new-style marker format used by newer song database exports.
   static List<String> extractLines(String rtf) {
     final lines = <String>[];
 
-    // EasyWorship 2 format: text is between last } and \par in pard blocks
+    // New song database format: text is between last } and \par in pard blocks
     final ew2Pattern = RegExp(r'\}([^\\\r\n{}]+?)\\par');
-    // EasyWorship legacy format
+    // Legacy song database format
     final legacyPattern = RegExp(
       r'\\plain[^}\\]*(?:\\fntnamaut\s*|\\f\d+\s*)([^\\\r\n]+?)\\par',
     );

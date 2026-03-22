@@ -5,9 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-// ignore: unused_import
-import '../utils/color_compat.dart';
-
 class AppSettings extends ChangeNotifier {
   static const Color _lightOutputBg = Color(0xFFF3F4F8);
   static const Color _lightOutputVerse = Color(0xFF141722);
