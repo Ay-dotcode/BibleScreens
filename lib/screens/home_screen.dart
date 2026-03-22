@@ -13,8 +13,6 @@ import '../services/bible_service.dart';
 import '../services/second_display_bridge.dart';
 import '../services/speech_service.dart';
 import '../services/verse_detector.dart';
-// ignore: unused_import
-import '../utils/color_compat.dart';
 import '../widgets/vosk_model_download_widget.dart';
 import 'settings_screen.dart';
 import 'song_search_screen.dart';

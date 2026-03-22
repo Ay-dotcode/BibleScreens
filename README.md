@@ -13,8 +13,8 @@ Bible Screens listens for spoken Bible references (for example, `John 3:16`), de
 - Lyrics slide push to output display
 - Dedicated output window mode for second display / projector
 - Output customization (theme, fonts, transition, background image)
-- Translation selection (`KJV`, `WEB`, `ASV`, `BBE`, `DARBY`, `DRA`, `YLT`)
-- Local verse caching and optional translation preload
+- Translation selection (`KJV`, `AKJV`, `RNKJV`, `WEB`, `ASV`, `ACV`, `BBE`, `YLT`)
+- Fully local Bible text (bundled XML assets; no verse download step)
 
 ## Requirements
 
@@ -88,7 +88,7 @@ For production, do not commit API keys in source. Use secure runtime configurati
 
 ## Data + services
 
-- Bible text source: `https://bible-api.com`
+- Bible text source: bundled XML files in `assets/bibles/`
 - Verse detection/parser: `lib/services/verse_detector.dart`
 - Display sync bridge: `lib/services/second_display_bridge.dart`
 - Song library: `assets/databases/*.db` via `lib/services/song_db_service.dart`
@@ -112,16 +112,17 @@ bible_screens/
 │   └── gradle/
 │       └── wrapper/
 ├── assets/
+│   ├── bibles/
+│   │   ├── ACV.xml
+│   │   ├── AKJV.xml
+│   │   ├── ASV.xml
+│   │   ├── BBE.xml
+│   │   ├── KJV.xml
+│   │   ├── RNKJV.xml
+│   │   ├── WEB.xml
+│   │   └── YLT.xml
 │   └── databases/
-│       ├── Songs.db
-│       ├── SongWords.db
-│       └── SongHistory.db
-├── build/
-│   ├── flutter_assets/
-│   ├── native_assets/
-│   ├── native_hooks/
-│   ├── windows/
-│   └── ...
+│       └── ...
 ├── ios/
 │   ├── Flutter/
 │   ├── Runner/
@@ -181,9 +182,10 @@ bible_screens/
 │   ├── manifest.json
 │   └── icons/
 └── windows/
-	├── CMakeLists.txt
-	├── flutter/
-	└── runner/
+│   ├── CMakeLists.txt
+│   ├── flutter/
+│   └── runner/
+└── build/                     # generated artifacts
 ```
 
 ## Development
@@ -195,6 +197,6 @@ flutter test
 
 ## Notes
 
-- First-time verse requests require network unless the verse is already cached.
-- Translation preload can take time depending on translation size and connection speed.
+- Bible verses are read from local bundled assets and work offline.
+- Internet is still required for live Deepgram transcription and downloading image URLs.
 - Desktop second-display behavior can vary by platform/window manager.

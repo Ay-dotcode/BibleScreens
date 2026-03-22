@@ -6,8 +6,6 @@ import 'package:flutter/material.dart';
 import '../models/app_settings.dart';
 import '../services/bible_service.dart';
 import '../services/image_service.dart';
-// ignore: unused_import
-import '../utils/color_compat.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,19 +16,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _settings = AppSettings.instance;
-  final _bible = BibleService();
-
-  bool _offlineDownloading = false;
-  double _offlineProgress = 0;
-  String _offlineLabel = '';
 
   bool _imageDownloading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _bible.init();
-  }
 
   // ── Build ──────────────────────────────────────────────────────────────────
 
@@ -76,15 +63,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _slider('Transcript opacity', _settings.transcriptOpacity, 0.1, 1.0,
                 (v) => _settings.update((s) => s.transcriptOpacity = v), theme),
             const SizedBox(height: 24),
-            _section('Offline Bible', theme),
-            _offlineDownloadTile(theme),
-            const SizedBox(height: 24),
             _section('About', theme),
             _infoTile('Speech backend', 'Deepgram nova-3 (WebSocket)', theme),
-            _infoTile('Internet usage', 'Bible fetch + image download', theme),
+            _infoTile('Bible source', 'Bundled local XML translations', theme),
             _infoTile(
-                'Offline caching', 'Verses cached after first load', theme),
-            _infoTile('Supported languages', 'English (US)', theme),
+                'Internet usage', 'Speech stream + optional image URL', theme),
+            _infoTile('Offline Bible mode',
+                'Always available (no verse downloads)', theme),
+            _infoTile('Supported speech language', 'English (US)', theme),
           ],
         ),
       ),
@@ -478,81 +464,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       child: child,
     );
-  }
-
-  // ── Offline download ───────────────────────────────────────────────────────
-
-  Widget _offlineDownloadTile(ThemeData theme) {
-    return _card(
-      theme,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-              'Download ${_settings.translation.toUpperCase()} for offline use',
-              style: TextStyle(
-                  color: theme.textTheme.bodyMedium?.color,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500)),
-          const SizedBox(height: 6),
-          Text(
-              'Downloads all chapters once so verse display works without internet.',
-              style: TextStyle(
-                  color: theme.textTheme.bodySmall?.color, fontSize: 12)),
-          const SizedBox(height: 12),
-          if (_offlineDownloading) ...[
-            LinearProgressIndicator(value: _offlineProgress),
-            const SizedBox(height: 6),
-            Text(_offlineLabel,
-                style: TextStyle(
-                    color: theme.textTheme.bodySmall?.color, fontSize: 12)),
-          ] else
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                onPressed: _downloadOfflineBible,
-                child: const Text('Download now'),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _downloadOfflineBible() async {
-    if (_offlineDownloading) return;
-    setState(() {
-      _offlineDownloading = true;
-      _offlineProgress = 0;
-      _offlineLabel = 'Starting…';
-    });
-    try {
-      await _bible.preloadEntireTranslation(
-        translation: _settings.translation,
-        onProgress: (done, total, label) {
-          if (!mounted) return;
-          final safeTotal = total <= 0 ? 1 : total;
-          setState(() {
-            _offlineProgress = done / safeTotal;
-            _offlineLabel = 'Downloading $label ($done/$total)';
-          });
-        },
-      );
-      if (mounted) {
-        _showSnack(
-            '${_settings.translation.toUpperCase()} downloaded for offline use.');
-      }
-    } catch (e) {
-      if (mounted) _showSnack('Download failed: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _offlineDownloading = false;
-          _offlineProgress = 0;
-          _offlineLabel = '';
-        });
-      }
-    }
   }
 
   // ── Utilities ──────────────────────────────────────────────────────────────

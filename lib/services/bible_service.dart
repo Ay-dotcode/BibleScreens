@@ -3,12 +3,6 @@ import 'package:xml/xml.dart';
 
 import '../models/bible_verse.dart';
 
-typedef OfflineDownloadProgress = void Function(
-  int completedChapters,
-  int totalChapters,
-  String currentLabel,
-);
-
 /// Fully offline Bible service backed by bundled XML assets.
 /// Replaces the old HTTP + verse_cache.json implementation entirely.
 /// Same public API as before — nothing else in the app needs to change.
@@ -86,15 +80,6 @@ class BibleService {
       text: text,
       translation: _translation.toUpperCase(),
     );
-  }
-
-  /// No-op — preloading is no longer needed since everything is bundled.
-  /// Kept so any existing preloadEntireTranslation() call sites don't break.
-  Future<void> preloadEntireTranslation({
-    String? translation,
-    OfflineDownloadProgress? onProgress,
-  }) async {
-    onProgress?.call(1, 1, 'Done');
   }
 
   // ─────────────────────────────────────────────────────────────────────────
