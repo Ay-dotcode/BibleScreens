@@ -40,7 +40,7 @@ const kVoskModels = [
   ),
 ];
 
-final kDefaultModel = kVoskModels[0];
+final kDefaultModel = kVoskModels[1];
 
 // ── Download progress ──────────────────────────────────────────────────────
 

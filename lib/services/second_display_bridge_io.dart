@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart' show Offset;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:screen_retriever/screen_retriever.dart';
 
 import '../models/second_display_state.dart';
 
@@ -21,7 +23,6 @@ class SecondDisplayBridge {
     _pollTimer = Timer.periodic(const Duration(milliseconds: 250), (_) async {
       await _poll();
     });
-
     _controller.onCancel = _stopPollingIfIdle;
   }
 
@@ -37,15 +38,12 @@ class SecondDisplayBridge {
     try {
       final file = await _ensureStateFile();
       if (!await file.exists()) return;
-
       final raw = await file.readAsString();
       if (raw.isEmpty || raw == _lastRaw) return;
-
       _lastRaw = raw;
       final json = jsonDecode(raw) as Map<String, dynamic>;
       _controller.add(SecondDisplayState.fromJson(json));
     } catch (_) {
-      // Ignore malformed/partial writes and keep polling.
     } finally {
       _polling = false;
     }
@@ -53,60 +51,81 @@ class SecondDisplayBridge {
 
   Future<File> _ensureStateFile() async {
     if (_stateFile != null) return _stateFile!;
-
     final baseDir = await getApplicationSupportDirectory();
     final appDir = Directory(p.join(baseDir.path, 'bible_screens'));
-    if (!await appDir.exists()) {
-      await appDir.create(recursive: true);
-    }
-
+    if (!await appDir.exists()) await appDir.create(recursive: true);
     _stateFile = File(p.join(appDir.path, _stateFileName));
     return _stateFile!;
   }
 
+  /// Opens the output display window.
+  ///
+  /// If a second monitor is detected the window launches borderless and
+  /// full-screen on that display. Otherwise it opens as a normal titled
+  /// window on the primary display.
   Future<void> openDisplayWindow() async {
-    if (!Platform.isLinux && !Platform.isWindows && !Platform.isMacOS) {
-      return;
-    }
+    if (!Platform.isLinux && !Platform.isWindows && !Platform.isMacOS) return;
 
     final executable = await _resolveCurrentExecutable();
     final workingDirectory = File(executable).parent.path;
+
+    // Detect displays
+    final displays = await screenRetriever.getAllDisplays();
+    final hasSecond = displays.length > 1;
+
+    List<String> args;
+
+    if (hasSecond) {
+      // Find the first non-primary display
+      final primary = await screenRetriever.getPrimaryDisplay();
+      final second = displays.firstWhere(
+        (d) => d.id != primary.id,
+        orElse: () => displays.last,
+      );
+
+      final pos = second.visiblePosition ?? const Offset(0, 0);
+      final size = second.visibleSize ?? second.size;
+      // Pass display bounds so the spawned window can position itself exactly
+      args = [
+        '--display-fullscreen',
+        '--screen-x=${pos.dx.toInt()}',
+        '--screen-y=${pos.dy.toInt()}',
+        '--screen-w=${size.width.toInt()}',
+        '--screen-h=${size.height.toInt()}',
+      ];
+    } else {
+      args = ['--display-window'];
+    }
 
     try {
       if (Platform.isWindows) {
         await Process.start(
           'cmd',
-          ['/c', 'start', '', executable, '--display-window'],
+          ['/c', 'start', '', executable, ...args],
           workingDirectory: workingDirectory,
           mode: ProcessStartMode.detached,
         );
       } else {
         await Process.start(
           executable,
-          const ['--display-window'],
+          args,
           workingDirectory: workingDirectory,
           environment: Platform.environment,
           mode: ProcessStartMode.detached,
         );
       }
     } on ProcessException catch (error) {
-      throw StateError(
-        'Could not open second display window: ${error.message}',
-      );
+      throw StateError('Could not open display window: ${error.message}');
     }
   }
 
   Future<String> _resolveCurrentExecutable() async {
-    // On Linux desktop, Platform.resolvedExecutable may point to a runtime
-    // launcher. /proc/self/exe reliably resolves to the actual app binary.
     if (Platform.isLinux) {
       final selfExe = File('/proc/self/exe');
       if (await selfExe.exists()) {
         try {
           return await selfExe.resolveSymbolicLinks();
-        } catch (_) {
-          // Fallback below.
-        }
+        } catch (_) {}
       }
     }
     return Platform.resolvedExecutable;
@@ -128,10 +147,8 @@ class SecondDisplayBridge {
     try {
       final file = await _ensureStateFile();
       if (!await file.exists()) return null;
-
       final raw = await file.readAsString();
       if (raw.isEmpty) return null;
-
       final json = jsonDecode(raw) as Map<String, dynamic>;
       return SecondDisplayState.fromJson(json);
     } catch (_) {

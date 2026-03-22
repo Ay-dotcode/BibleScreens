@@ -145,7 +145,7 @@ class _VoskModelDownloadWidgetState extends State<VoskModelDownloadWidget> {
       const SizedBox(width: 8),
       Expanded(
         child: Text(
-          'Offline speech recognition requires a one-time model download (~40 MB).',
+          'Offline speech recognition requires a one-time model download (~1.8 GB).',
           style:
               TextStyle(fontSize: 12, color: theme.textTheme.bodySmall?.color),
         ),

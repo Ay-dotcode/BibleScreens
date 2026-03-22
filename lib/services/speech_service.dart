@@ -6,7 +6,6 @@ import 'dart:typed_data';
 import 'package:record/record.dart';
 import 'package:vosk_flutter_service/vosk_flutter.dart';
 
-import '../utils/bible_grammar.dart';
 import 'vosk_model_service.dart';
 
 enum ListeningState { idle, initializing, listening, paused, error }
@@ -40,12 +39,8 @@ class SpeechService {
   bool get _isDesktop =>
       Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
-  // Minimum average confidence across all words in a result.
-  // Results below this are discarded as likely false positives from
-  // ambient speech being forced into Bible vocabulary.
-  static const double _minConfidence = 0.75;
-
   // ── Mic selection ──────────────────────────────────────────────────────────
+
   List<InputDevice> _availableMics = [];
   InputDevice? _selectedMic;
 
@@ -73,13 +68,11 @@ class SpeechService {
       final path = await modelSvc.modelPath(kDefaultModel);
       _model = await _vosk.createModel(path);
 
-      // Grammar mode: restrict Vosk to Bible book names + numbers only.
-      // Combined with confidence filtering this prevents ambient speech
-      // from being misheard as verse references.
+      // No grammar — large model is accurate enough for full transcription.
+      // VerseDetector handles filtering; it only fires on genuine book+ref patterns.
       _recognizer = await _vosk.createRecognizer(
         model: _model!,
         sampleRate: 16000,
-        grammar: kBibleGrammar,
       );
 
       _initialized = true;
@@ -131,12 +124,11 @@ class SpeechService {
           if (_recognizer == null) return;
           final ready = await _recognizer!.acceptWaveformBytes(chunk);
           if (ready) {
-            // Final results include per-word confidence — filter low confidence
-            final text = _parseWithConfidence(await _recognizer!.getResult());
+            // Final result — emit full recognized text
+            final text = _parseText(await _recognizer!.getResult(), 'text');
             if (text.isNotEmpty) _transcriptCtrl.add(text);
           } else {
-            // Partials have no confidence scores — show as-is in transcript
-            // strip but VerseDetector will only act on final results
+            // Partial result — shows words as they are spoken in real time
             final text =
                 _parseText(await _recognizer!.getPartialResult(), 'partial');
             if (text.isNotEmpty) _transcriptCtrl.add(text);
@@ -159,7 +151,7 @@ class SpeechService {
     _pcmSub = null;
     await _recorder.stop();
     if (_recognizer != null) {
-      final text = _parseWithConfidence(await _recognizer!.getFinalResult());
+      final text = _parseText(await _recognizer!.getFinalResult(), 'text');
       if (text.isNotEmpty) _transcriptCtrl.add(text);
     }
   }
@@ -169,7 +161,7 @@ class SpeechService {
   Future<void> _startAndroid() async {
     _androidSpeechService = await _vosk.initSpeechService(_recognizer!);
     _androidResultSub = _androidSpeechService.onResult().listen((e) {
-      final text = _parseWithConfidence(e);
+      final text = _parseText(e, 'text');
       if (text.isNotEmpty) _transcriptCtrl.add(text);
     });
     _androidPartialSub = _androidSpeechService.onPartial().listen((e) {
@@ -188,48 +180,6 @@ class SpeechService {
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-
-  /// Parses a Vosk final result JSON and returns the text only if the
-  /// average per-word confidence meets [_minConfidence].
-  ///
-  /// Vosk result format with word-level confidence:
-  /// {
-  ///   "result": [
-  ///     {"conf": 0.92, "word": "john"},
-  ///     {"conf": 0.88, "word": "three"},
-  ///     {"conf": 0.95, "word": "sixteen"}
-  ///   ],
-  ///   "text": "john three sixteen"
-  /// }
-  String _parseWithConfidence(String json) {
-    try {
-      final map = jsonDecode(json) as Map<String, dynamic>;
-      final text = (map['text'] as String? ?? '').trim();
-      if (text.isEmpty) return '';
-
-      final results = map['result'] as List<dynamic>?;
-      if (results == null || results.isEmpty) {
-        // No per-word scores available — fall back to returning the text
-        return text;
-      }
-
-      double totalConf = 0;
-      int count = 0;
-      for (final w in results) {
-        final conf = (w as Map<String, dynamic>)['conf'];
-        if (conf != null) {
-          totalConf += (conf as num).toDouble();
-          count++;
-        }
-      }
-
-      if (count == 0) return text;
-      final avgConf = totalConf / count;
-      return avgConf >= _minConfidence ? text : '';
-    } catch (_) {
-      return '';
-    }
-  }
 
   String _parseText(String json, String key) {
     try {
