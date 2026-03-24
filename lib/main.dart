@@ -16,21 +16,11 @@ void main(List<String> args) async {
     databaseFactory = databaseFactoryFfi;
   }
 
-  // ── Parse launch flags ─────────────────────────────────────────────────────
-  //
-  // --display-fullscreen  launched by bridge when a second monitor is detected:
-  //                       borderless, always-on-top, positioned to fill that display
-  // --display-window      launched by bridge on single-display setups:
-  //                       normal titled window
-  // --display-window /
-  // --display             legacy flag, treated as --display-window
-
   final isFullscreen = args.contains('--display-fullscreen');
   final isDisplayWindow =
       args.contains('--display-window') || args.contains('--display');
   final isDisplayMode = isFullscreen || isDisplayWindow;
 
-  // Parse optional screen geometry passed by the bridge (fullscreen only)
   final screenX = _intArg(args, '--screen-x');
   final screenY = _intArg(args, '--screen-y');
   final screenW = _intArg(args, '--screen-w');
@@ -44,14 +34,12 @@ void main(List<String> args) async {
     await windowManager.ensureInitialized();
 
     if (isFullscreen) {
-      // ── Borderless fullscreen on second display ──────────────────────────
       final opts = WindowOptions(
         titleBarStyle: TitleBarStyle.hidden,
         windowButtonVisibility: false,
         alwaysOnTop: true,
         skipTaskbar: false,
         backgroundColor: Colors.transparent,
-        // Start at the right position if geometry was provided
         size: hasGeometry ? Size(screenW.toDouble(), screenH.toDouble()) : null,
       );
 
@@ -71,7 +59,6 @@ void main(List<String> args) async {
         await windowManager.focus();
       });
     } else if (isDisplayWindow) {
-      // ── Normal titled window (single display / no second monitor) ─────────
       const opts = WindowOptions(
         title: 'Church Display — Output',
         titleBarStyle: TitleBarStyle.normal,
@@ -86,7 +73,6 @@ void main(List<String> args) async {
         await windowManager.focus();
       });
     } else {
-      // ── Control window (main app) ──────────────────────────────────────────
       const opts = WindowOptions(
         title: 'Church Display — Control',
         titleBarStyle: TitleBarStyle.normal,
@@ -103,7 +89,6 @@ void main(List<String> args) async {
   runApp(BibleScreensApp(forceDisplayMode: isDisplayMode));
 }
 
-/// Parses an integer argument of the form `--key=value` from [args].
 int? _intArg(List<String> args, String key) {
   for (final arg in args) {
     if (arg.startsWith('$key=')) {
