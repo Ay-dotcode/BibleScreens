@@ -151,7 +151,8 @@ class VerseDetector {
   static DetectedIntent? _detectVerseOrRange(String rawText) {
     if (rawText.trim().isEmpty) return null;
 
-    final normalized = NumberWords.convert(rawText.toLowerCase());
+    final rawLower = rawText.toLowerCase();
+    final normalized = NumberWords.convert(rawLower);
 
     final candidates = <_BookCandidate>[];
     for (final label in BibleBooks.sortedKeys) {
@@ -168,13 +169,20 @@ class VerseDetector {
         ));
       }
     }
-    candidates.sort((a, b) => b.index.compareTo(a.index));
+    candidates.sort((a, b) {
+      final byIndex = b.index.compareTo(a.index);
+      if (byIndex != 0) return byIndex;
+      return b.label.length.compareTo(a.label.length);
+    });
 
     for (final c in candidates) {
       final tail = normalized.substring(c.index + c.label.length);
+      final rawTail = (c.index + c.label.length <= rawLower.length)
+          ? rawLower.substring(c.index + c.label.length)
+          : tail;
 
       // Try range first ("1 2 to 3", "1:2-3")
-      final range = _tryParseRange(tail, c.canonicalBook);
+      final range = _tryParseRange(rawTail, c.canonicalBook);
       if (range != null) return range;
 
       // Single verse
@@ -207,6 +215,7 @@ class VerseDetector {
 
   /// Parses a range like "1 2 to 3", "1:2-3", "chapter 1 verse 2 through 3".
   static VerseRangeIntent? _tryParseRange(String tail, String book) {
+    final raw = tail.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
     final n = NumberWords.convert(tail.toLowerCase());
 
     // chapter separator startVerse rangeWord endVerse
@@ -219,7 +228,7 @@ class VerseDetector {
       caseSensitive: false,
     );
 
-    final m = re.firstMatch(n);
+    final m = re.firstMatch(raw) ?? re.firstMatch(n);
     if (m == null) return null;
 
     final ch = int.tryParse(m.group(1)!);

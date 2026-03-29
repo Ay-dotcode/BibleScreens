@@ -82,6 +82,21 @@ class BibleService {
     );
   }
 
+  /// Returns the highest verse number in [book] [chapter] for the current
+  /// translation, or null when the book/chapter cannot be found.
+  Future<int?> maxVerseInChapter(String book, int chapter) async {
+    if (chapter <= 0) return null;
+
+    final books = await _loadTranslation(_translation);
+    final bookKey = _findBookKey(books, book);
+    if (bookKey == null) return null;
+
+    final verses = books[bookKey]?[chapter];
+    if (verses == null || verses.isEmpty) return null;
+
+    return verses.keys.reduce((a, b) => a > b ? a : b);
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Internal — XML loading and parsing
   // ─────────────────────────────────────────────────────────────────────────

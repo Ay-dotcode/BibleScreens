@@ -13,6 +13,8 @@ import '../services/bible_service.dart';
 import '../services/second_display_bridge.dart';
 import '../services/speech_service.dart';
 import '../services/verse_detector.dart';
+import '../utils/bible_books.dart';
+import '../utils/bible_chapters.dart';
 import '../widgets/vosk_model_download_widget.dart';
 import 'settings_screen.dart';
 import 'song_search_screen.dart';
@@ -23,6 +25,22 @@ class _HistoryEntry {
   final BibleVerse verse;
   final DateTime time;
   _HistoryEntry(this.verse) : time = DateTime.now();
+}
+
+class _ParsedSearchInput {
+  final String book;
+  final int? chapter;
+  final int? verse;
+  final bool hasDash;
+  final int? endVerse;
+
+  const _ParsedSearchInput({
+    required this.book,
+    required this.chapter,
+    required this.verse,
+    required this.hasDash,
+    required this.endVerse,
+  });
 }
 
 // ── Widget ─────────────────────────────────────────────────────────────────
@@ -69,6 +87,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   BibleVerse? _searchResult;
   bool _searchLoading = false;
   String? _searchError;
+  static const Duration _doubleAdvanceWindow = Duration(milliseconds: 420);
+  DateTime? _lastSearchAdvanceAt;
+  LogicalKeyboardKey? _lastSearchAdvanceKey;
 
   // ── Lyrics ─────────────────────────────────────────────────────────────────
   final _lyricsCtrl = TextEditingController();
@@ -403,15 +424,314 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  void _setSearchText(String text) {
+    _searchCtrl.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  void _setSearchInlineError(String message) {
+    if (!mounted) return;
+    setState(() {
+      _searchError = message;
+    });
+  }
+
+  void _clearSearchInlineError() {
+    if (!mounted) return;
+    if (_searchError == null) return;
+    setState(() {
+      _searchError = null;
+    });
+  }
+
+  String? _resolveUniqueBookPrefix(String token) {
+    final normalized =
+        token.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    if (normalized.isEmpty) return null;
+
+    final exact = BibleBooks.resolve(normalized);
+    if (exact != null) return exact;
+
+    final matches = <String>{};
+    for (final canonical in BibleBooks.canonicalBooks) {
+      if (canonical.toLowerCase().startsWith(normalized)) {
+        matches.add(canonical);
+      }
+    }
+    for (final key in BibleBooks.sortedKeys) {
+      if (!key.startsWith(normalized)) continue;
+      final canonical = BibleBooks.resolve(key);
+      if (canonical != null) {
+        matches.add(canonical);
+      }
+    }
+
+    if (matches.length == 1) return matches.first;
+    return null;
+  }
+
+  _ParsedSearchInput? _parseSearchInput(String value) {
+    final normalized = value
+        .replaceAll(':', ' : ')
+        .replaceAll('-', ' - ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    if (normalized.isEmpty) return null;
+    final tokens = normalized.split(' ');
+
+    for (var i = tokens.length; i >= 1; i--) {
+      final bookToken = tokens.take(i).join(' ');
+      final canonical = BibleBooks.resolve(bookToken);
+      if (canonical == null) continue;
+
+      var index = i;
+      int? chapter;
+      int? verse;
+      var hasDash = false;
+      int? endVerse;
+
+      if (index < tokens.length) {
+        chapter = int.tryParse(tokens[index]);
+        if (chapter == null) continue;
+        index++;
+      }
+
+      if (index < tokens.length && tokens[index] == ':') {
+        index++;
+      }
+
+      if (index < tokens.length) {
+        final maybeVerse = int.tryParse(tokens[index]);
+        if (maybeVerse != null) {
+          verse = maybeVerse;
+          index++;
+        }
+      }
+
+      if (index < tokens.length && tokens[index] == '-') {
+        hasDash = true;
+        index++;
+        if (index < tokens.length) {
+          endVerse = int.tryParse(tokens[index]);
+          if (endVerse == null) continue;
+          index++;
+        }
+      }
+
+      if (index != tokens.length) continue;
+
+      return _ParsedSearchInput(
+        book: canonical,
+        chapter: chapter,
+        verse: verse,
+        hasDash: hasDash,
+        endVerse: endVerse,
+      );
+    }
+
+    return null;
+  }
+
+  bool _canHandleAdvanceFromSearch() {
+    final raw = _searchCtrl.text;
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return false;
+
+    final parsed = _parseSearchInput(trimmed);
+    if (parsed != null) return true;
+
+    return _resolveUniqueBookPrefix(trimmed) != null;
+  }
+
+  Future<void> _openWholeChapter(String book, int chapter) async {
+    _bible.translation = _settings.translation;
+    final maxVerse = await _bible.maxVerseInChapter(book, chapter);
+    if (maxVerse == null || maxVerse <= 0) {
+      _setSearchInlineError(
+          'Could not find $book $chapter in this translation');
+      return;
+    }
+    await _autoFetchRangeAndDisplay(
+      VerseReference(book: book, chapter: chapter, verse: 1),
+      maxVerse,
+    );
+    _clearSearchInlineError();
+  }
+
+  Future<void> _advanceSearchInput(LogicalKeyboardKey key) async {
+    final now = DateTime.now();
+    final isDouble = _lastSearchAdvanceKey == key &&
+        _lastSearchAdvanceAt != null &&
+        now.difference(_lastSearchAdvanceAt!) <= _doubleAdvanceWindow;
+    _lastSearchAdvanceKey = key;
+    _lastSearchAdvanceAt = now;
+
+    final raw = _searchCtrl.text;
+    final trimmed = raw.trim();
+    final hasTrailingSpace = raw.endsWith(' ');
+
+    if (trimmed.isEmpty) return;
+
+    final parsed = _parseSearchInput(trimmed);
+
+    if (parsed == null) {
+      final uniqueBook = _resolveUniqueBookPrefix(trimmed);
+      if (uniqueBook == null) {
+        _setSearchInlineError('Type a valid Bible book name');
+        return;
+      }
+      _setSearchText('$uniqueBook ');
+      _clearSearchInlineError();
+      return;
+    }
+
+    if (parsed.chapter == null) {
+      _setSearchText('${parsed.book} ');
+      _clearSearchInlineError();
+      return;
+    }
+
+    final chapter = parsed.chapter!;
+    final chapterLimit = BibleChapters.counts[parsed.book];
+    if (chapterLimit == null || chapter <= 0 || chapter > chapterLimit) {
+      _setSearchInlineError('${parsed.book} has chapters 1-$chapterLimit only');
+      return;
+    }
+
+    if (parsed.verse == null) {
+      if (hasTrailingSpace) {
+        await _openWholeChapter(parsed.book, chapter);
+      } else {
+        _setSearchText('${parsed.book} $chapter ');
+        _clearSearchInlineError();
+      }
+      return;
+    }
+
+    final verse = parsed.verse!;
+    _bible.translation = _settings.translation;
+    final maxVerse = await _bible.maxVerseInChapter(parsed.book, chapter);
+    if (maxVerse == null || verse <= 0 || verse > maxVerse) {
+      _setSearchInlineError(
+          'Verse must be between 1 and $maxVerse for ${parsed.book} $chapter');
+      return;
+    }
+
+    if (!parsed.hasDash) {
+      _setSearchText('${parsed.book} $chapter:$verse-');
+      _clearSearchInlineError();
+      return;
+    }
+
+    if (parsed.endVerse == null) {
+      if (!isDouble) {
+        _setSearchText('${parsed.book} $chapter:$verse-');
+        _clearSearchInlineError();
+        return;
+      }
+
+      _setSearchText('${parsed.book} $chapter:$verse-$maxVerse');
+      await _autoFetchRangeAndDisplay(
+        VerseReference(book: parsed.book, chapter: chapter, verse: verse),
+        maxVerse,
+      );
+      _clearSearchInlineError();
+      return;
+    }
+
+    final endVerse = parsed.endVerse!;
+    if (endVerse < verse || endVerse > maxVerse) {
+      _setSearchInlineError(
+          'Ending verse must be between $verse and $maxVerse');
+      return;
+    }
+
+    await _autoFetchRangeAndDisplay(
+      VerseReference(book: parsed.book, chapter: chapter, verse: verse),
+      endVerse,
+    );
+    _clearSearchInlineError();
+  }
+
+  void _handleSearchChanged(String value) {
+
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      _clearSearchInlineError();
+      return;
+    }
+
+    final noDigitsOrSeparators = !RegExp(r'[0-9:-]').hasMatch(trimmed);
+    if (!noDigitsOrSeparators) {
+      _clearSearchInlineError();
+      return;
+    }
+
+    final uniqueBook = _resolveUniqueBookPrefix(trimmed);
+    if (uniqueBook == null) return;
+
+    if (uniqueBook.toLowerCase() == trimmed.toLowerCase()) {
+      _clearSearchInlineError();
+      return;
+    }
+
+    _setSearchText(uniqueBook);
+    _clearSearchInlineError();
+  }
+
+  bool _handleSearchArrowNavigation(LogicalKeyboardKey key) {
+    if (_liveRange.isEmpty) return false;
+
+    if (key == LogicalKeyboardKey.arrowDown) {
+      if (_liveRangeIndex >= _liveRange.length - 1) return true;
+      _liveRangeIndex++;
+      _pushLive(_liveRange[_liveRangeIndex]);
+      return true;
+    }
+
+    if (key == LogicalKeyboardKey.arrowUp) {
+      if (_liveRangeIndex <= 0) return true;
+      _liveRangeIndex--;
+      _pushLive(_liveRange[_liveRangeIndex]);
+      return true;
+    }
+
+    return false;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Hotkeys
   // ─────────────────────────────────────────────────────────────────────────
 
   bool _handleKey(KeyEvent event) {
     if (event is! KeyDownEvent) return false;
-    if (_searchFocusNode.hasFocus || _lyricsFocusNode.hasFocus) return false;
 
     final key = event.logicalKey;
+
+    if (_searchFocusNode.hasFocus) {
+      if (key == LogicalKeyboardKey.tab) {
+        unawaited(_advanceSearchInput(key));
+        return true;
+      }
+
+      if (key == LogicalKeyboardKey.space) {
+        if (!_canHandleAdvanceFromSearch()) return false;
+        unawaited(_advanceSearchInput(key));
+        return true;
+      }
+
+      if (key == LogicalKeyboardKey.arrowDown ||
+          key == LogicalKeyboardKey.arrowUp) {
+        return _handleSearchArrowNavigation(key);
+      }
+
+      return false;
+    }
+
+    if (_lyricsFocusNode.hasFocus) return false;
     final ctrl = HardwareKeyboard.instance.isControlPressed;
 
     if (key == LogicalKeyboardKey.escape) {
@@ -578,20 +898,42 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     });
 
     try {
-      final ref = VerseDetector.detect(query);
-      if (ref == null) {
+      final intent = VerseDetector.detectIntent(query);
+      if (intent == null) {
         setState(() {
           _searchLoading = false;
           _searchError = 'Enter a valid reference — e.g. John 3:16 or Psalm 23';
         });
         return;
       }
+
       _bible.translation = _settings.translation;
-      final verse = await _bible.fetchVerse(ref);
+
+      if (intent is VerseRangeIntent) {
+        await _autoFetchRangeAndDisplay(intent.start, intent.endVerse);
+        if (!mounted) return;
+        setState(() {
+          _searchLoading = false;
+          _searchResult = _liveRange.isNotEmpty ? _liveRange.first : null;
+          _searchError = null;
+        });
+        return;
+      }
+
+      if (intent is! VerseIntent) {
+        setState(() {
+          _searchLoading = false;
+          _searchError = 'Enter a valid reference — e.g. John 3:16 or Psalm 23';
+        });
+        return;
+      }
+
+      final verse = await _bible.fetchVerse(intent.ref);
       if (!mounted) return;
       setState(() {
         _searchResult = verse;
         _searchLoading = false;
+        _searchError = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -1262,16 +1604,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             child: TextField(
               controller: _searchCtrl,
               focusNode: _searchFocusNode,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r"[A-Za-z0-9:\-\s]")),
+              ],
               style: TextStyle(
                   fontSize: 14, color: theme.textTheme.bodyMedium?.color),
               decoration: InputDecoration(
-                hintText: 'e.g. John 3:16 or Genesis 1:2-5',
+                hintText: 'Type book → Tab/Space → chapter → Tab/Space → verse',
                 prefixIcon: Icon(Icons.search_rounded,
                     size: 18, color: theme.textTheme.bodySmall?.color),
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 isDense: true,
               ),
+              onChanged: _handleSearchChanged,
               onSubmitted: (_) => _performSearch(),
             ),
           ),

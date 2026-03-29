@@ -48,5 +48,25 @@ void main() {
     test('returns null when no reference exists', () {
       expect(VerseDetector.detect('hallelujah amen everyone'), isNull);
     });
+
+    test('detects verse range with colon separator', () {
+      final intent = VerseDetector.detectIntent('genesis 1:3-6');
+      expect(intent, isA<VerseRangeIntent>());
+      final range = intent as VerseRangeIntent;
+      expect(range.start.book, 'Genesis');
+      expect(range.start.chapter, 1);
+      expect(range.start.verse, 3);
+      expect(range.endVerse, 6);
+    });
+
+    test('detects verse range with space separator', () {
+      final intent = VerseDetector.detectIntent('genesis 1 3 to 6');
+      expect(intent, isA<VerseRangeIntent>());
+      final range = intent as VerseRangeIntent;
+      expect(range.start.book, 'Genesis');
+      expect(range.start.chapter, 1);
+      expect(range.start.verse, 3);
+      expect(range.endVerse, 6);
+    });
   });
 }
