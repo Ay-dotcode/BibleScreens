@@ -2,42 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../services/vosk_model_service.dart';
+import '../services/sherpa_model_service.dart';
 
-/// Drop-in overlay shown in the mic controls area when the Vosk model
-/// hasn't been downloaded yet.
-///
-/// Usage in HomeScreen — listen for 'model_not_downloaded' on errorStream
-/// and set a flag to show this widget in place of the normal mic controls.
-///
-/// Example:
-///   _errorSub = _speech.errorStream.listen((e) {
-///     if (e == 'model_not_downloaded') {
-///       setState(() => _needsModelDownload = true);
-///     } else {
-///       _showError(e);
-///     }
-///   });
-///
-/// Then in _buildMicControls / wherever:
-///   if (_needsModelDownload)
-///     return VoskModelDownloadWidget(
-///       onReady: () => setState(() => _needsModelDownload = false),
-///     );
-
-class VoskModelDownloadWidget extends StatefulWidget {
-  /// Called when the model is downloaded and ready — re-init the service.
+class SherpaModelDownloadWidget extends StatefulWidget {
   final VoidCallback onReady;
-
-  const VoskModelDownloadWidget({super.key, required this.onReady});
+  const SherpaModelDownloadWidget({super.key, required this.onReady});
 
   @override
-  State<VoskModelDownloadWidget> createState() =>
-      _VoskModelDownloadWidgetState();
+  State<SherpaModelDownloadWidget> createState() =>
+      _SherpaModelDownloadWidgetState();
 }
 
-class _VoskModelDownloadWidgetState extends State<VoskModelDownloadWidget> {
-  final _svc = VoskModelService.instance;
+class _SherpaModelDownloadWidgetState extends State<SherpaModelDownloadWidget> {
+  final _svc = SherpaModelService.instance;
   ModelDownloadProgress? _progress;
   StreamSubscription<ModelDownloadProgress>? _sub;
   bool _downloading = false;
@@ -50,7 +27,7 @@ class _VoskModelDownloadWidgetState extends State<VoskModelDownloadWidget> {
 
   void _startDownload() {
     setState(() => _downloading = true);
-    _sub = _svc.download(kDefaultModel).listen(
+    _sub = _svc.download(kDefaultSherpaModel).listen(
       (p) {
         if (!mounted) return;
         setState(() => _progress = p);
@@ -79,7 +56,6 @@ class _VoskModelDownloadWidgetState extends State<VoskModelDownloadWidget> {
     final theme = Theme.of(context);
     final p = _progress;
 
-    // Error state
     if (p?.error != null) {
       return _bar(theme, children: [
         Icon(Icons.error_outline_rounded, size: 16, color: Colors.red.shade400),
@@ -92,7 +68,6 @@ class _VoskModelDownloadWidgetState extends State<VoskModelDownloadWidget> {
       ]);
     }
 
-    // Downloading / extracting
     if (_downloading && p != null && !p.done) {
       final isExtracting = p.status == 'Extracting…';
       return _bar(theme, children: [
@@ -100,9 +75,9 @@ class _VoskModelDownloadWidgetState extends State<VoskModelDownloadWidget> {
           width: 16,
           height: 16,
           child: CircularProgressIndicator(
-              strokeWidth: 2,
-              value:
-                  isExtracting ? null : (p.fraction > 0 ? p.fraction : null)),
+            strokeWidth: 2,
+            value: isExtracting ? null : (p.fraction > 0 ? p.fraction : null),
+          ),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -113,7 +88,8 @@ class _VoskModelDownloadWidgetState extends State<VoskModelDownloadWidget> {
               Text(
                 isExtracting
                     ? 'Extracting model…'
-                    : 'Downloading Vosk model  ${p.mbReceived} / ${p.mbTotal}',
+                    : 'Downloading Sherpa-ONNX model  '
+                        '${p.mbReceived} / ${p.mbTotal}',
                 style: TextStyle(
                     fontSize: 12, color: theme.textTheme.bodySmall?.color),
               ),
@@ -130,22 +106,24 @@ class _VoskModelDownloadWidgetState extends State<VoskModelDownloadWidget> {
             ],
           ),
         ),
-        Text(isExtracting ? '' : p.percent,
-            style: TextStyle(
-                fontSize: 11,
-                color: theme.textTheme.bodySmall?.color,
-                fontFeatures: const [FontFeature.tabularFigures()])),
+        Text(
+          isExtracting ? '' : p.percent,
+          style: TextStyle(
+            fontSize: 11,
+            color: theme.textTheme.bodySmall?.color,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
       ]);
     }
 
-    // Idle — not yet started
     return _bar(theme, children: [
       Icon(Icons.download_rounded,
           size: 16, color: theme.textTheme.bodySmall?.color),
       const SizedBox(width: 8),
       Expanded(
         child: Text(
-          'Offline speech recognition requires a one-time model download (~1.8 GB).',
+          'Offline speech recognition requires a one-time model download (~105 MB).',
           style:
               TextStyle(fontSize: 12, color: theme.textTheme.bodySmall?.color),
         ),

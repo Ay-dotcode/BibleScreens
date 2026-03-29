@@ -1,12 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:record/record.dart';
-import 'package:vosk_flutter_service/vosk_flutter.dart';
+import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa;
 
-import 'vosk_model_service.dart';
+import 'sherpa_model_service.dart';
 
 enum ListeningState { idle, initializing, listening, paused, error }
 
@@ -24,20 +23,13 @@ class SpeechService {
   ListeningState _state = ListeningState.idle;
   ListeningState get state => _state;
 
-  final _vosk = VoskFlutterPlugin.instance();
-  Model? _model;
-  Recognizer? _recognizer;
-
-  dynamic _androidSpeechService;
-  StreamSubscription<String>? _androidResultSub;
-  StreamSubscription<String>? _androidPartialSub;
+  sherpa.OnlineRecognizer? _recognizer;
+  sherpa.OnlineStream? _stream;
 
   final _recorder = AudioRecorder();
   StreamSubscription<Uint8List>? _pcmSub;
 
   bool _initialized = false;
-  bool get _isDesktop =>
-      Platform.isWindows || Platform.isLinux || Platform.isMacOS;
 
   // ── Mic selection ──────────────────────────────────────────────────────────
 
@@ -58,29 +50,51 @@ class SpeechService {
     _emitState(ListeningState.initializing);
 
     try {
-      final modelSvc = VoskModelService.instance;
-      if (!await modelSvc.isDownloaded(kDefaultModel)) {
+      final svc = SherpaModelService.instance;
+      if (!await svc.isDownloaded(kDefaultSherpaModel)) {
         _emitState(ListeningState.idle);
         _errorCtrl.add('model_not_downloaded');
         return false;
       }
 
-      final path = await modelSvc.modelPath(kDefaultModel);
-      _model = await _vosk.createModel(path);
+      final encoder = await svc.encoderPath(kDefaultSherpaModel);
+      final decoder = await svc.decoderPath(kDefaultSherpaModel);
+      final joiner = await svc.joinerPath(kDefaultSherpaModel);
+      final tokens = await svc.tokensPath(kDefaultSherpaModel);
 
-      // No grammar — large model is accurate enough for full transcription.
-      // VerseDetector handles filtering; it only fires on genuine book+ref patterns.
-      _recognizer = await _vosk.createRecognizer(
-        model: _model!,
-        sampleRate: 16000,
+      // OnlineModelConfig uses `transducer` for zipformer transducer models.
+      // `zipformer2` refers only to CTC variants — transducer is correct here.
+      final modelConfig = sherpa.OnlineModelConfig(
+        transducer: sherpa.OnlineTransducerModelConfig(
+          encoder: encoder,
+          decoder: decoder,
+          joiner: joiner,
+        ),
+        tokens: tokens,
+        numThreads: Platform.numberOfProcessors.clamp(1, 4),
+        modelType: 'zipformer2',
+        debug: false,
       );
+
+      final config = sherpa.OnlineRecognizerConfig(
+        model: modelConfig,
+        enableEndpoint: true,
+        rule1MinTrailingSilence: 2.4,
+        rule2MinTrailingSilence: 1.2,
+        rule3MinUtteranceLength: 20.0,
+        decodingMethod: 'greedy_search',
+        maxActivePaths: 4,
+      );
+
+      _recognizer = sherpa.OnlineRecognizer(config);
+      _stream = _recognizer!.createStream();
 
       _initialized = true;
       _emitState(ListeningState.idle);
       return true;
     } catch (e) {
       _emitState(ListeningState.error);
-      _errorCtrl.add('Vosk init failed: $e');
+      _errorCtrl.add('Sherpa init failed: $e');
       return false;
     }
   }
@@ -93,18 +107,18 @@ class SpeechService {
       if (!ok) return;
     }
     _emitState(ListeningState.listening);
-    _isDesktop ? await _startDesktop() : await _startAndroid();
+    await _startMic();
   }
 
   Future<void> stopListening() async {
-    _isDesktop ? await _stopDesktop() : await _stopAndroid();
+    await _pcmSub?.cancel();
+    _pcmSub = null;
+    await _recorder.stop();
     _audioLevelCtrl.add(0.0);
     _emitState(ListeningState.idle);
   }
 
-  // ── Desktop ────────────────────────────────────────────────────────────────
-
-  Future<void> _startDesktop() async {
+  Future<void> _startMic() async {
     try {
       if (!await _recorder.hasPermission()) {
         _emitState(ListeningState.error);
@@ -112,31 +126,17 @@ class SpeechService {
         return;
       }
 
-      final stream = await _recorder.startStream(RecordConfig(
+      final audioStream = await _recorder.startStream(RecordConfig(
         encoder: AudioEncoder.pcm16bits,
         sampleRate: 16000,
         numChannels: 1,
         device: _selectedMic,
       ));
 
-      _pcmSub = stream.listen(
-        (chunk) async {
-          if (_recognizer == null) return;
-          final ready = await _recognizer!.acceptWaveformBytes(chunk);
-          if (ready) {
-            // Final result — emit full recognized text
-            final text = _parseText(await _recognizer!.getResult(), 'text');
-            if (text.isNotEmpty) _transcriptCtrl.add(text);
-          } else {
-            // Partial result — shows words as they are spoken in real time
-            final text =
-                _parseText(await _recognizer!.getPartialResult(), 'partial');
-            if (text.isNotEmpty) _transcriptCtrl.add(text);
-          }
-          _audioLevelCtrl.add(_rms(chunk));
-        },
+      _pcmSub = audioStream.listen(
+        _onAudioChunk,
         onError: (e) {
-          _errorCtrl.add('Mic stream error: $e');
+          _errorCtrl.add('Mic error: $e');
           _emitState(ListeningState.error);
         },
       );
@@ -146,49 +146,38 @@ class SpeechService {
     }
   }
 
-  Future<void> _stopDesktop() async {
-    await _pcmSub?.cancel();
-    _pcmSub = null;
-    await _recorder.stop();
-    if (_recognizer != null) {
-      final text = _parseText(await _recognizer!.getFinalResult(), 'text');
-      if (text.isNotEmpty) _transcriptCtrl.add(text);
+  void _onAudioChunk(Uint8List bytes) {
+    if (_recognizer == null || _stream == null) return;
+
+    // Convert Int16 PCM bytes → Float32 samples normalised to [-1, 1]
+    final int16 = bytes.buffer.asInt16List();
+    final float32 = Float32List(int16.length);
+    for (var i = 0; i < int16.length; i++) {
+      float32[i] = int16[i] / 32768.0;
     }
-  }
 
-  // ── Android ────────────────────────────────────────────────────────────────
+    _stream!.acceptWaveform(samples: float32, sampleRate: 16000);
 
-  Future<void> _startAndroid() async {
-    _androidSpeechService = await _vosk.initSpeechService(_recognizer!);
-    _androidResultSub = _androidSpeechService.onResult().listen((e) {
-      final text = _parseText(e, 'text');
-      if (text.isNotEmpty) _transcriptCtrl.add(text);
-    });
-    _androidPartialSub = _androidSpeechService.onPartial().listen((e) {
-      final text = _parseText(e, 'partial');
-      if (text.isNotEmpty) _transcriptCtrl.add(text);
-    });
-    await _androidSpeechService.start();
-  }
+    // Decode all pending frames
+    while (_recognizer!.isReady(_stream!)) {
+      _recognizer!.decode(_stream!);
+    }
 
-  Future<void> _stopAndroid() async {
-    await _androidResultSub?.cancel();
-    await _androidPartialSub?.cancel();
-    await _androidSpeechService?.stop();
-    await _androidSpeechService?.dispose();
-    _androidSpeechService = null;
+    // Emit current (partial or final) transcript text
+    final result = _recognizer!.getResult(_stream!);
+    if (result.text.isNotEmpty) {
+      _transcriptCtrl.add(result.text.trim());
+    }
+
+    // On detected endpoint (natural pause) reset so next utterance starts fresh
+    if (_recognizer!.isEndpoint(_stream!)) {
+      _recognizer!.reset(_stream!);
+    }
+
+    _audioLevelCtrl.add(_rms(bytes));
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
-
-  String _parseText(String json, String key) {
-    try {
-      return ((jsonDecode(json) as Map<String, dynamic>)[key] as String? ?? '')
-          .trim();
-    } catch (_) {
-      return '';
-    }
-  }
 
   double _rms(Uint8List bytes) {
     if (bytes.length < 2) return 0;
@@ -210,12 +199,8 @@ class SpeechService {
   Future<void> dispose() async {
     await _pcmSub?.cancel();
     await _recorder.dispose();
-    await _androidResultSub?.cancel();
-    await _androidPartialSub?.cancel();
-    await _androidSpeechService?.stop();
-    await _androidSpeechService?.dispose();
-    _recognizer?.dispose();
-    _model?.dispose();
+    _stream?.free();
+    _recognizer?.free();
     await _transcriptCtrl.close();
     await _stateCtrl.close();
     await _errorCtrl.close();
