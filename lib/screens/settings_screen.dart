@@ -64,7 +64,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 (v) => _settings.update((s) => s.transcriptOpacity = v), theme),
             const SizedBox(height: 24),
             _section('About', theme),
-            _infoTile('Speech backend', 'Vosk local speech recognition', theme),
+            _infoTile('Speech backend', 'Sherpa ONNX local speech recognition',
+                theme),
             _infoTile('Bible source', 'Bundled local XML translations', theme),
             _infoTile(
                 'Internet usage', 'Optional image URL download only', theme),

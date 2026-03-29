@@ -7,7 +7,7 @@ class AppStorageService {
   static const String rootFolderName = 'Bible Screen';
   static const String songDatabaseFolder = 'song_database';
   static const String imagesFolder = 'images';
-  static const String modelsFolder = 'vosk_models';
+  static const String modelsFolder = 'speech_models';
 
   static Future<Directory> get rootDirectory async {
     final docs = await getApplicationDocumentsDirectory();
@@ -76,45 +76,6 @@ class AppStorageService {
     final newDir = await subDirectory(modelsFolder);
     if (await newDir.exists() && newDir.listSync().isNotEmpty) return newDir;
 
-    final docs = await getApplicationDocumentsDirectory();
-    final legacyDir = Directory(p.join(docs.path, 'vosk_models'));
-    if (await legacyDir.exists()) {
-      try {
-        await legacyDir.rename(newDir.path);
-      } catch (_) {
-        for (final entity in legacyDir.listSync()) {
-          final name = p.basename(entity.path);
-          if (entity is File) {
-            final target = File(p.join(newDir.path, name));
-            if (!target.existsSync()) {
-              await entity.copy(target.path);
-            }
-          } else if (entity is Directory) {
-            final target = Directory(p.join(newDir.path, name));
-            await _copyDirectory(entity, target);
-          }
-        }
-      }
-    }
-
     return newDir;
-  }
-
-  static Future<void> _copyDirectory(Directory source, Directory target) async {
-    if (!await target.exists()) {
-      await target.create(recursive: true);
-    }
-
-    await for (final entity in source.list(recursive: false)) {
-      final name = p.basename(entity.path);
-      if (entity is File) {
-        final file = File(p.join(target.path, name));
-        if (!await file.exists()) {
-          await entity.copy(file.path);
-        }
-      } else if (entity is Directory) {
-        await _copyDirectory(entity, Directory(p.join(target.path, name)));
-      }
-    }
   }
 }

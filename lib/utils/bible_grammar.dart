@@ -59,6 +59,6 @@ const List<String> kBibleGrammar = [
   "chapter", "verse", "verses", "colon", "through", "to", "and",
   "first", "second", "third",
 
-  // ── Required Vosk unknown token ───────────────────────────────────────────
+  // ── Required unknown token ────────────────────────────────────────────────
   "[unk]",
 ];

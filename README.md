@@ -6,7 +6,7 @@ Bible Screens listens for spoken Bible references (for example, `John 3:16`), de
 
 ## What it does
 
-- Live speech transcription (local Vosk model)
+- Live speech transcription (local Sherpa ONNX model)
 - Automatic Bible reference detection from transcript text
 - Manual verse search with queue + push controls
 - Song search from bundled song database SQLite files
@@ -69,11 +69,11 @@ Open any of these routes/URL patterns:
 
 ## Speech model setup
 
-Speech recognition is implemented in `lib/services/speech_service.dart` using the local Vosk model service.
+Speech recognition is implemented in `lib/services/speech_service.dart` using the local Sherpa ONNX model service.
 
 If no model is installed yet, the app prompts for model download from the Home screen.
 
-Model management is handled in `lib/services/vosk_model_service.dart`.
+Model management is handled in `lib/services/sherpa_model_service.dart`.
 
 No API key is required for speech recognition.
 
@@ -129,7 +129,7 @@ bible_screens/
 │   │   ├── song_db_service.dart
 │   │   ├── speech_service.dart
 │   │   ├── verse_detector.dart
-│   │   └── vosk_model_service.dart
+│   │   └── sherpa_model_service.dart
 │   ├── utils/
 │   │   └── ...
 │   └── widgets/
@@ -157,7 +157,7 @@ Documents/
    ├── settings.json
    ├── song_database/
    ├── images/
-   ├── vosk_models/
+   ├── speech_models/
    └── state/
 ```
 

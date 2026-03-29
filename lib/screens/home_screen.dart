@@ -83,7 +83,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   List<InputDevice> _availableMics = [];
   InputDevice? _selectedMic;
 
-  // ── Vosk model ─────────────────────────────────────────────────────────────
+  // ── Speech model ───────────────────────────────────────────────────────────
   bool _needsModelDownload = false;
 
   // ── Subscriptions ──────────────────────────────────────────────────────────
@@ -623,7 +623,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   void _pushLyricsSlide() {
-    if (_currentLyricsSlide < 0 || _currentLyricsSlide >= _lyricsSlides.length) {
+    if (_currentLyricsSlide < 0 ||
+        _currentLyricsSlide >= _lyricsSlides.length) {
       return;
     }
     _pushTextSlide(_lyricsSlides[_currentLyricsSlide]);
