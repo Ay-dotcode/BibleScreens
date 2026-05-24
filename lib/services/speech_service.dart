@@ -62,28 +62,20 @@ class SpeechService {
       final joiner = await svc.joinerPath(kDefaultSherpaModel);
       final tokens = await svc.tokensPath(kDefaultSherpaModel);
 
-      // OnlineModelConfig uses `transducer` for zipformer transducer models.
-      // `zipformer2` refers only to CTC variants — transducer is correct here.
-      final modelConfig = sherpa.OnlineModelConfig(
-        transducer: sherpa.OnlineTransducerModelConfig(
-          encoder: encoder,
-          decoder: decoder,
-          joiner: joiner,
-        ),
-        tokens: tokens,
-        numThreads: Platform.numberOfProcessors.clamp(1, 4),
-        modelType: 'zipformer2',
-        debug: false,
-      );
-
       final config = sherpa.OnlineRecognizerConfig(
-        model: modelConfig,
-        enableEndpoint: true,
-        rule1MinTrailingSilence: 2.4,
-        rule2MinTrailingSilence: 1.2,
-        rule3MinUtteranceLength: 20.0,
-        decodingMethod: 'greedy_search',
-        maxActivePaths: 4,
+        model: sherpa.OnlineModelConfig(
+          transducer: sherpa.OnlineTransducerModelConfig(
+            encoder: encoder,
+            decoder: decoder,
+            joiner: joiner,
+          ),
+          tokens: tokens,
+          numThreads: Platform.numberOfProcessors > 4 ? 2 : 1,
+          modelType: 'zipformer2',
+          debug: false,
+          provider: 'cuda',
+        ),
+        decodingMethod: 'greedy',
       );
 
       _recognizer = sherpa.OnlineRecognizer(config);
@@ -158,7 +150,7 @@ class SpeechService {
 
     _stream!.acceptWaveform(samples: float32, sampleRate: 16000);
 
-    // Decode all pending frames
+    // Decode all pending frames on the GPU hardware accelerator
     while (_recognizer!.isReady(_stream!)) {
       _recognizer!.decode(_stream!);
     }
