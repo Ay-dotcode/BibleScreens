@@ -75,7 +75,7 @@ class SpeechService {
           debug: false,
           provider: 'cuda',
         ),
-        decodingMethod: 'greedy',
+        decodingMethod: 'greedy_search',
       );
 
       _recognizer = sherpa.OnlineRecognizer(config);

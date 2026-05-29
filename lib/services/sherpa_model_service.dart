@@ -34,9 +34,9 @@ const kDefaultSherpaModel = SherpaModelInfo(
   url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/'
       'sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2',
   dirName: 'sherpa-onnx-streaming-zipformer-en-2023-06-26',
-  encoderFile: 'encoder-epoch-99-avg-1.int8.onnx',
-  decoderFile: 'decoder-epoch-99-avg-1.int8.onnx',
-  joinerFile: 'joiner-epoch-99-avg-1.int8.onnx',
+  encoderFile: 'encoder-epoch-99-avg-1-chunk-16-left-128.int8.onnx',
+  decoderFile: 'decoder-epoch-99-avg-1-chunk-16-left-128.int8.onnx',
+  joinerFile: 'joiner-epoch-99-avg-1-chunk-16-left-128.int8.onnx',
   tokensFile: 'tokens.txt',
 );
 
@@ -67,6 +67,12 @@ class SherpaModelService {
   static SherpaModelService get instance =>
       _instance ??= SherpaModelService._();
 
+  void _log(String message) {
+    stdout.writeln('[SherpaModelService] $message');
+  }
+
+  String _formatBytes(int bytes) => '${(bytes / 1e6).toStringAsFixed(1)} MB';
+
   Future<Directory> get _modelsDir async {
     final docs = await getApplicationDocumentsDirectory();
     final dir = Directory(p.join(docs.path, 'sherpa_models'));
@@ -96,16 +102,29 @@ class SherpaModelService {
 
   Stream<ModelDownloadProgress> download(SherpaModelInfo info) async* {
     final base = await _modelsDir;
-    final tarPath = p.join(base.path, '${info.dirName}.tar.bz2');
+    final tempDir = await getTemporaryDirectory();
+    final tarPath = p.join(tempDir.path, '${info.dirName}.tar.bz2');
+
+    _log('Starting download for ${info.displayName} (${info.name})');
+    _log('Model directory: ${base.path}');
+    _log('Temporary archive: $tarPath');
+    _log('Source URL: ${info.url}');
 
     try {
       yield const ModelDownloadProgress(
           received: 0, total: 0, status: 'Connecting…');
 
+      _log('Opening HTTP request');
       final request = http.Request('GET', Uri.parse(info.url));
       final response = await request.send();
 
+      _log(
+          'HTTP response: ${response.statusCode} ${response.reasonPhrase ?? ''}'
+              .trim());
+      _log('Response headers: ${response.headers}');
+
       if (response.statusCode != 200) {
+        _log('Download failed before body transfer');
         yield ModelDownloadProgress(
           received: 0,
           total: 0,
@@ -116,12 +135,21 @@ class SherpaModelService {
       }
 
       final total = response.contentLength ?? 0;
+      _log('Content length: ${total > 0 ? _formatBytes(total) : 'unknown'}');
       int received = 0;
       final sink = File(tarPath).openWrite();
+      _log('Writing archive to disk');
 
       await for (final chunk in response.stream) {
         sink.add(chunk);
         received += chunk.length;
+        if (total > 0) {
+          final percent = ((received / total) * 100).toStringAsFixed(0);
+          _log(
+              'Downloaded $percent% (${_formatBytes(received)} / ${_formatBytes(total)})');
+        } else {
+          _log('Downloaded ${_formatBytes(received)}');
+        }
         yield ModelDownloadProgress(
           received: received,
           total: total,
@@ -131,16 +159,24 @@ class SherpaModelService {
       await sink.flush();
       await sink.close();
 
+      _log(
+          'Archive download complete: ${_formatBytes(received)} saved to $tarPath');
+
       yield ModelDownloadProgress(
         received: received,
         total: total,
         status: 'Extracting…',
       );
 
+      _log('Extracting archive into ${base.path}');
       await _extractTarBz2(tarPath, base.path);
+      _log('Extraction complete');
 
       final tarFile = File(tarPath);
-      if (tarFile.existsSync()) await tarFile.delete();
+      if (tarFile.existsSync()) {
+        _log('Deleting temporary archive');
+        await tarFile.delete();
+      }
 
       yield ModelDownloadProgress(
         received: received,
@@ -148,10 +184,14 @@ class SherpaModelService {
         status: 'Ready',
         done: true,
       );
-    } catch (e) {
+      _log('Model download finished successfully');
+    } catch (e, st) {
+      _log('Download failed with exception: $e');
+      _log(st.toString());
       final tarFile = File(tarPath);
       if (tarFile.existsSync()) {
         try {
+          _log('Cleaning up temporary archive after failure');
           await tarFile.delete();
         } catch (_) {}
       }
@@ -166,13 +206,14 @@ class SherpaModelService {
 
   Future<void> _extractTarBz2(String tarPath, String destDir) async {
     await Future(() {
-      final inputStream = InputFileStream(tarPath);
       final bzipDecoder = BZip2Decoder();
       final tarDecoder = TarDecoder();
-      final tarBytes = bzipDecoder.decodeBytes(inputStream.toUint8List());
+      final tarBytes = bzipDecoder.decodeBytes(File(tarPath).readAsBytesSync());
       final archive = tarDecoder.decodeBytes(tarBytes);
+      _log('Archive contains ${archive.length} entries');
       for (final file in archive) {
         final outPath = p.join(destDir, file.name);
+        _log('Extracting ${file.name} -> $outPath');
         if (file.isFile) {
           final outFile = File(outPath);
           outFile.parent.createSync(recursive: true);
